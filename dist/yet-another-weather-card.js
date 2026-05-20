@@ -5,7 +5,7 @@
  * toggleable hourly/daily forecast, and support for custom temperature,
  * humidity, and pressure sensor entities.
  *
- * Version: 1.0.0
+ * Version: 1.1.0
  * Author:  Balazs Skorka
  *
  * Installation (manual, easiest):
@@ -23,11 +23,16 @@
  *   as a "Lovelace" category, then install from the list.
  */
 
+// Lit imports. We use lit v3 from jsdelivr (HA itself uses lit 3 internally).
+// CRITICAL: we must import `svg` as well as `html`/`css` because SVG-child
+// content (everything inside <svg>...</svg>) must be tagged with svg`...`
+// rather than html`...` to be parsed in the correct namespace.
 import {
   LitElement,
   html,
   css,
-} from "https://unpkg.com/lit-element@2.5.1/lit-element.js?module";
+  svg,
+} from "https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js";
 
 class YetAnotherWeatherCard extends LitElement {
   static get properties() {
@@ -195,10 +200,16 @@ class YetAnotherWeatherCard extends LitElement {
   }
 
   // ── Animated icon factory ────────────────────────────────
+  //
+  // CRITICAL: Everything between <svg>...</svg> must be tagged with svg`...`
+  // (not html`...`). When lit-html sees <circle>, <rect>, <g>, etc. via the
+  // html tag, it parses them in HTML namespace where they have zero meaning
+  // and render as empty inline elements. svg`...` parses them in the SVG
+  // namespace so they actually render as shapes.
   _icon(condition, size = 88, isDay = true) {
     const c = (condition || "").toLowerCase();
 
-    const sun = (cx = 50, cy = 38, r = 13, ray = 8) => html`
+    const sun = (cx = 50, cy = 38, r = 13, ray = 8) => svg`
       <g transform="translate(${cx} ${cy})">
         <g class="sun-rays" fill="#EF9F27">
           <rect x="-1.5" y="${-r - ray - 4}" width="3" height="${ray}" rx="1.5"/>
@@ -215,14 +226,14 @@ class YetAnotherWeatherCard extends LitElement {
         <circle r="${r}" fill="#EF9F27"/>
       </g>`;
 
-    const moon = (cx = 50, cy = 40, r = 16) => html`
+    const moon = (cx = 50, cy = 40, r = 16) => svg`
       <g transform="translate(${cx} ${cy})">
         <circle r="${r}" fill="#D3D1C7"/>
         <circle cx="${r * 0.4}" cy="${-r * 0.2}" r="${r}"
                 fill="var(--card-background-color, var(--ha-card-background, #1c1c1e))"/>
       </g>`;
 
-    const cloud = (cx, cy, scale = 1, color = "#888780", cls = "cloud") => html`
+    const cloud = (cx, cy, scale = 1, color = "#888780", cls = "cloud") => svg`
       <g class="${cls}" transform="translate(${cx} ${cy}) scale(${scale})">
         <ellipse cx="20" cy="8" rx="22" ry="11" fill="${color}"/>
         <circle cx="10" cy="4" r="9" fill="${color}"/>
@@ -231,7 +242,7 @@ class YetAnotherWeatherCard extends LitElement {
 
     const drops = (x, y, n = 3, color = "#378ADD") =>
       Array.from({ length: n }).map(
-        (_, i) => html`
+        (_, i) => svg`
           <line class="raindrop" style="animation-delay:${i * 0.3}s"
                 x1="${x + i * 7}" y1="${y}" x2="${x + i * 7}" y2="${y + 5}"
                 stroke="${color}" stroke-width="1.5" stroke-linecap="round"/>`
@@ -239,7 +250,7 @@ class YetAnotherWeatherCard extends LitElement {
 
     const flakes = (x, y, n = 3) =>
       Array.from({ length: n }).map(
-        (_, i) => html`
+        (_, i) => svg`
           <circle class="snowflake" style="animation-delay:${i * 0.4}s"
                   cx="${x + i * 7}" cy="${y}" r="1.6" fill="#85B7EB"/>`
       );
@@ -248,13 +259,13 @@ class YetAnotherWeatherCard extends LitElement {
     if (c === "sunny" || c === "clear") body = sun();
     else if (c === "clear-night") body = moon();
     else if (c === "partlycloudy" || c === "partly-cloudy")
-      body = html`${isDay ? sun(38, 30, 11, 6) : moon(38, 32, 13)}
-                  ${cloud(36, 50, 0.9)}`;
+      body = svg`${isDay ? sun(38, 30, 11, 6) : moon(38, 32, 13)}
+                 ${cloud(36, 50, 0.9)}`;
     else if (c === "cloudy")
-      body = html`${cloud(20, 38, 1.1, "#B4B2A9", "cloud")}
-                  ${cloud(35, 56, 0.9, "#888780", "cloud2")}`;
+      body = svg`${cloud(20, 38, 1.1, "#B4B2A9", "cloud")}
+                 ${cloud(35, 56, 0.9, "#888780", "cloud2")}`;
     else if (c === "fog")
-      body = html`
+      body = svg`
         <g class="fog">
           <rect x="18" y="38" width="64" height="3" rx="1.5" fill="#B4B2A9"/>
           <rect x="22" y="50" width="56" height="3" rx="1.5" fill="#888780"/>
@@ -262,19 +273,19 @@ class YetAnotherWeatherCard extends LitElement {
           <rect x="20" y="74" width="60" height="3" rx="1.5" fill="#888780"/>
         </g>`;
     else if (c === "rainy" || c === "pouring")
-      body = html`${cloud(20, 28, 1.2, "#5F5E5A")}
-                  ${drops(28, 62, c === "pouring" ? 5 : 3)}`;
+      body = svg`${cloud(20, 28, 1.2, "#5F5E5A")}
+                 ${drops(28, 62, c === "pouring" ? 5 : 3)}`;
     else if (c === "snowy" || c === "snowy-rainy")
-      body = html`${cloud(20, 28, 1.2, "#B4B2A9")}
-                  ${c === "snowy-rainy" ? drops(28, 62, 2) : ""}
-                  ${flakes(c === "snowy-rainy" ? 50 : 28, 64, 3)}`;
+      body = svg`${cloud(20, 28, 1.2, "#B4B2A9")}
+                 ${c === "snowy-rainy" ? drops(28, 62, 2) : ""}
+                 ${flakes(c === "snowy-rainy" ? 50 : 28, 64, 3)}`;
     else if (c === "lightning" || c === "lightning-rainy")
-      body = html`${cloud(20, 28, 1.2, "#5F5E5A")}
-                  <path class="bolt" d="M48 56 L42 72 L50 72 L46 86 L60 66 L52 66 L56 56 Z"
-                        fill="#EF9F27"/>
-                  ${c === "lightning-rainy" ? drops(28, 78, 3) : ""}`;
+      body = svg`${cloud(20, 28, 1.2, "#5F5E5A")}
+                 <path class="bolt" d="M48 56 L42 72 L50 72 L46 86 L60 66 L52 66 L56 56 Z"
+                       fill="#EF9F27"/>
+                 ${c === "lightning-rainy" ? drops(28, 78, 3) : ""}`;
     else if (c === "windy" || c === "windy-variant")
-      body = html`
+      body = svg`
         <g class="wind">
           <path d="M20 35 Q40 30 60 35 Q70 37 65 42 Q60 45 55 42"
                 fill="none" stroke="#888780" stroke-width="3" stroke-linecap="round"/>
@@ -284,16 +295,19 @@ class YetAnotherWeatherCard extends LitElement {
                 stroke-width="3" stroke-linecap="round"/>
         </g>`;
     else if (c === "hail")
-      body = html`${cloud(20, 28, 1.2, "#5F5E5A")}
-                  <circle class="hailstone" cx="32" cy="66" r="2.5" fill="#85B7EB"/>
-                  <circle class="hailstone" style="animation-delay:.3s" cx="42" cy="66" r="2.5" fill="#85B7EB"/>
-                  <circle class="hailstone" style="animation-delay:.6s" cx="52" cy="66" r="2.5" fill="#85B7EB"/>`;
+      body = svg`${cloud(20, 28, 1.2, "#5F5E5A")}
+                 <circle class="hailstone" cx="32" cy="66" r="2.5" fill="#85B7EB"/>
+                 <circle class="hailstone" style="animation-delay:.3s" cx="42" cy="66" r="2.5" fill="#85B7EB"/>
+                 <circle class="hailstone" style="animation-delay:.6s" cx="52" cy="66" r="2.5" fill="#85B7EB"/>`;
     else if (c === "exceptional")
-      body = html`${cloud(20, 28, 1.2, "#993C1D")}
-                  <text x="50" y="80" text-anchor="middle" font-size="22"
-                        font-weight="700" fill="#993C1D">!</text>`;
+      body = svg`${cloud(20, 28, 1.2, "#993C1D")}
+                 <text x="50" y="80" text-anchor="middle" font-size="22"
+                       font-weight="700" fill="#993C1D">!</text>`;
     else body = cloud(28, 40, 1.1, "#B4B2A9");
 
+    // The outer <svg> tag itself is in HTML context (it's a child of a div),
+    // so it's wrapped with html`...`. Its inner content (`body`) is already
+    // an svg template result, which lit-html composes correctly.
     return html`
       <svg width="${size}" height="${size}" viewBox="0 0 100 100" aria-hidden="true">
         ${body}
@@ -757,7 +771,7 @@ window.customCards.push({
 });
 
 console.info(
-  "%c YET-ANOTHER-WEATHER-CARD %c v1.0.0 ",
+  "%c YET-ANOTHER-WEATHER-CARD %c v1.1.0 ",
   "color: white; background: #185FA5; font-weight: 700; padding: 2px 6px; border-radius: 3px 0 0 3px;",
   "color: #185FA5; background: white; font-weight: 700; padding: 2px 6px; border: 1px solid #185FA5; border-radius: 0 3px 3px 0;"
 );
