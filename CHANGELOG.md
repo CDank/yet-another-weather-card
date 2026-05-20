@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.1 — 2026-05-20
+
+### Changed
+- Graph label sizes now match the strip cells: high temperatures 13 px (was 11), low temperatures and time/day labels 11 px (was 10). Padding around the chart grew slightly to keep the bigger labels from clipping or colliding with the curves.
+
 ## 1.4.0 — 2026-05-20
 
 ### Added

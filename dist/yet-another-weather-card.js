@@ -5,7 +5,7 @@
  * toggleable hourly/daily forecast, and support for custom temperature,
  * humidity, and pressure sensor entities.
  *
- * Version: 1.4.0
+ * Version: 1.4.1
  * Author:  Balazs Skorka
  *
  * Installation (manual, easiest):
@@ -445,10 +445,10 @@ class YetAnotherWeatherCard extends LitElement {
     if (!items || items.length < 2) return "";
 
     const W = 600;          // SVG viewBox width — actual width is CSS-driven
-    const H = 120;          // total height including label space
+    const H = 130;          // total height including label space
     const padX = 24;        // left/right padding
-    const padTop = 22;      // headroom for hi labels
-    const padBot = 32;      // space for time labels + lo labels
+    const padTop = 26;      // headroom for hi labels
+    const padBot = 38;      // space for time labels + lo labels
     const plotW = W - 2 * padX;
     const plotH = H - padTop - padBot;
 
@@ -565,18 +565,18 @@ class YetAnotherWeatherCard extends LitElement {
           )}
           ${highs.map((v, i) =>
             i % labelEvery === 0
-              ? svg`<text x="${xOf(i)}" y="${yOf(v) - 8}"
+              ? svg`<text x="${xOf(i)}" y="${yOf(v) - 10}"
                           text-anchor="middle"
-                          font-size="11" font-weight="500"
+                          font-size="13" font-weight="500"
                           fill="var(--primary-text-color)">${this._fmt(v, 0)}°</text>`
               : ""
           )}
           ${hasLows
             ? lows.map((v, i) =>
                 v != null && i % labelEvery === 0
-                  ? svg`<text x="${xOf(i)}" y="${yOf(v) + 14}"
+                  ? svg`<text x="${xOf(i)}" y="${yOf(v) + 16}"
                               text-anchor="middle"
-                              font-size="10"
+                              font-size="11"
                               fill="var(--secondary-text-color)">${this._fmt(v, 0)}°</text>`
                   : ""
               )
@@ -585,7 +585,7 @@ class YetAnotherWeatherCard extends LitElement {
             i % labelEvery === 0
               ? svg`<text x="${xOf(i)}" y="${H - 8}"
                           text-anchor="middle"
-                          font-size="10"
+                          font-size="11"
                           fill="var(--secondary-text-color)">${
                             this._mode === "hourly"
                               ? i === 0 ? this._t("now") : this._formatTime(f.datetime)
@@ -1109,7 +1109,7 @@ window.customCards.push({
 });
 
 console.info(
-  "%c YET-ANOTHER-WEATHER-CARD %c v1.4.0 ",
+  "%c YET-ANOTHER-WEATHER-CARD %c v1.4.1 ",
   "color: white; background: #185FA5; font-weight: 700; padding: 2px 6px; border-radius: 3px 0 0 3px;",
   "color: #185FA5; background: white; font-weight: 700; padding: 2px 6px; border: 1px solid #185FA5; border-radius: 0 3px 3px 0;"
 );
