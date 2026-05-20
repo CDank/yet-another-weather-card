@@ -8,6 +8,7 @@ Yes, the world needed another one. A custom weather card for Home Assistant with
 
 ## Features
 
+- **Visual editor** — full GUI configuration, no YAML required
 - **Animated SVG icons** — rotating sun, drifting clouds, falling rain, tumbling snow, flickering lightning, shifting fog
 - **Live forecast** — uses the modern `weather/subscribe_forecast` WebSocket API (HA 2024+), no polling
 - **Hourly ⇄ Daily toggle** — automatically appears when both forecast types are available

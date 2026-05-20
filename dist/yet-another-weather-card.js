@@ -544,6 +544,10 @@ class YetAnotherWeatherCard extends LitElement {
     `;
   }
 
+  static getConfigElement() {
+    return document.createElement("yet-another-weather-card-editor");
+  }
+
   static getStubConfig(hass) {
     const weatherEntity = hass
       ? Object.keys(hass.states).find((id) => id.startsWith("weather."))
@@ -563,6 +567,185 @@ class YetAnotherWeatherCard extends LitElement {
   }
 }
 
+// ─────────────────────────────────────────────────────────
+//  Visual Editor
+// ─────────────────────────────────────────────────────────
+class YetAnotherWeatherCardEditor extends LitElement {
+  static get properties() {
+    return {
+      hass: { type: Object },
+      _config: { type: Object },
+    };
+  }
+
+  setConfig(config) {
+    this._config = config;
+  }
+
+  // Schema drives the form. ha-form renders the correct widget per selector:
+  //   - entity selector with domain filters
+  //   - boolean → toggle
+  //   - number → slider/input
+  //   - select → dropdown
+  _schema() {
+    return [
+      {
+        name: "entity",
+        required: true,
+        selector: { entity: { domain: "weather" } },
+      },
+      {
+        name: "name",
+        selector: { text: {} },
+      },
+      {
+        type: "grid",
+        name: "",
+        schema: [
+          {
+            name: "default_mode",
+            selector: {
+              select: {
+                mode: "dropdown",
+                options: [
+                  { value: "hourly", label: "Hourly" },
+                  { value: "daily", label: "Daily" },
+                ],
+              },
+            },
+          },
+          {
+            name: "forecast_items",
+            selector: {
+              number: { min: 1, max: 24, step: 1, mode: "box" },
+            },
+          },
+        ],
+      },
+      {
+        name: "temperature_entity",
+        selector: {
+          entity: { domain: ["sensor", "input_number", "number"] },
+        },
+      },
+      {
+        name: "humidity_entity",
+        selector: {
+          entity: { domain: ["sensor", "input_number", "number"] },
+        },
+      },
+      {
+        name: "pressure_entity",
+        selector: {
+          entity: { domain: ["sensor", "input_number", "number"] },
+        },
+      },
+      {
+        type: "grid",
+        name: "",
+        schema: [
+          { name: "show_current", selector: { boolean: {} } },
+          { name: "show_stats", selector: { boolean: {} } },
+          { name: "show_forecast", selector: { boolean: {} } },
+        ],
+      },
+    ];
+  }
+
+  // Pretty labels & helper text for ha-form. Falls back to the field name if omitted.
+  _computeLabel = (schema) => {
+    const labels = {
+      entity: "Weather entity (required)",
+      name: "Display name",
+      default_mode: "Default forecast view",
+      forecast_items: "Forecast items",
+      temperature_entity: "Temperature sensor (optional)",
+      humidity_entity: "Humidity sensor (optional)",
+      pressure_entity: "Pressure sensor (optional)",
+      show_current: "Show current",
+      show_stats: "Show stats",
+      show_forecast: "Show forecast",
+    };
+    return labels[schema.name] ?? schema.name;
+  };
+
+  _computeHelper = (schema) => {
+    const helpers = {
+      temperature_entity: "Overrides the weather entity's temperature",
+      humidity_entity: "Overrides the weather entity's humidity",
+      pressure_entity: "Overrides the weather entity's pressure",
+      forecast_items: "Number of forecast cells (1–24)",
+    };
+    return helpers[schema.name];
+  };
+
+  _valueChanged(ev) {
+    if (!this._config) return;
+    const newConfig = { ...ev.detail.value };
+
+    // Strip empty-string optional fields so YAML stays clean
+    for (const key of [
+      "name",
+      "temperature_entity",
+      "humidity_entity",
+      "pressure_entity",
+    ]) {
+      if (newConfig[key] === "" || newConfig[key] == null) {
+        delete newConfig[key];
+      }
+    }
+
+    this.dispatchEvent(
+      new CustomEvent("config-changed", {
+        detail: { config: newConfig },
+        bubbles: true,
+        composed: true,
+      })
+    );
+  }
+
+  render() {
+    if (!this.hass || !this._config) return html``;
+
+    // Provide sensible defaults to ha-form so toggles show correct state
+    const data = {
+      default_mode: "hourly",
+      forecast_items: 7,
+      show_current: true,
+      show_stats: true,
+      show_forecast: true,
+      ...this._config,
+    };
+
+    return html`
+      <ha-form
+        .hass=${this.hass}
+        .data=${data}
+        .schema=${this._schema()}
+        .computeLabel=${this._computeLabel}
+        .computeHelper=${this._computeHelper}
+        @value-changed=${this._valueChanged}
+      ></ha-form>
+    `;
+  }
+
+  static get styles() {
+    return css`
+      :host {
+        display: block;
+      }
+      ha-form {
+        display: block;
+      }
+    `;
+  }
+}
+
+customElements.define(
+  "yet-another-weather-card-editor",
+  YetAnotherWeatherCardEditor
+);
+
 customElements.define("yet-another-weather-card", YetAnotherWeatherCard);
 
 window.customCards = window.customCards || [];
@@ -570,7 +753,7 @@ window.customCards.push({
   type: "yet-another-weather-card",
   name: "Yet Another Weather Card",
   description: "Beautiful weather card with animated icons, forecast toggle, and custom sensor support",
-  preview: false,
+  preview: true,
 });
 
 console.info(
