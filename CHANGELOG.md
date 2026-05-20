@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.4.0 — 2026-05-20
+
+### Added
+- `forecast_style` config option with three values:
+  - `strip` (default, existing behavior) — cells with icons and temperatures
+  - `graph` — filled-area temperature chart with smooth curves between high (solid amber line) and low (dashed blue line). Each data point labeled with the high value above and low value below; time/day labels along the bottom
+  - `both` — graph rendered above the cell strip
+- When the forecast data has no `templow` (typically hourly forecasts), the graph degrades gracefully to a single high line with no area fill.
+
 ## 1.3.0 — 2026-05-20
 
 ### Added

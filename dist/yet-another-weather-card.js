@@ -5,7 +5,7 @@
  * toggleable hourly/daily forecast, and support for custom temperature,
  * humidity, and pressure sensor entities.
  *
- * Version: 1.3.0
+ * Version: 1.4.0
  * Author:  Balazs Skorka
  *
  * Installation (manual, easiest):
@@ -68,6 +68,7 @@ class YetAnotherWeatherCard extends LitElement {
       show_forecast: true,
       show_stats: true,
       forecast_items: 7,
+      forecast_style: "strip",
       ...config,
     };
     this._mode = this._config.default_mode;
@@ -430,6 +431,173 @@ class YetAnotherWeatherCard extends LitElement {
       </svg>`;
   }
 
+  // ── Forecast graph ───────────────────────────────────────
+  //
+  // Filled-area chart between the high and low temperature series.
+  // When low is unavailable for any item, falls back to a single line on
+  // high only (no area band). Time/day labels sit along the bottom; the
+  // high value labels float above each data point, lows sit below.
+  //
+  // Width is fluid (viewBox-based, preserveAspectRatio="none" on the area
+  // path so the curve stretches; the labels and points are in absolute SVG
+  // coords for crisp rendering).
+  _renderGraph(items) {
+    if (!items || items.length < 2) return "";
+
+    const W = 600;          // SVG viewBox width — actual width is CSS-driven
+    const H = 120;          // total height including label space
+    const padX = 24;        // left/right padding
+    const padTop = 22;      // headroom for hi labels
+    const padBot = 32;      // space for time labels + lo labels
+    const plotW = W - 2 * padX;
+    const plotH = H - padTop - padBot;
+
+    const n = items.length;
+    const highs = items.map((f) => f.temperature);
+    const lows = items.map((f) =>
+      f.templow != null ? f.templow : null
+    );
+    const hasLows = lows.some((v) => v != null);
+
+    // Y-axis range: pad by 2° on each side so labels don't clip
+    const allVals = highs.concat(hasLows ? lows.filter((v) => v != null) : []);
+    let yMin = Math.min(...allVals) - 2;
+    let yMax = Math.max(...allVals) + 2;
+    if (yMax - yMin < 4) {
+      // Avoid a flat line when all values are nearly equal
+      const mid = (yMax + yMin) / 2;
+      yMin = mid - 2;
+      yMax = mid + 2;
+    }
+
+    const xOf = (i) =>
+      n === 1 ? padX + plotW / 2 : padX + (i / (n - 1)) * plotW;
+    const yOf = (v) =>
+      padTop + plotH - ((v - yMin) / (yMax - yMin)) * plotH;
+
+    // Catmull-Rom → cubic Bezier for a smooth curve through the points.
+    const smoothPath = (points) => {
+      if (points.length < 2) return "";
+      let d = `M ${points[0][0]} ${points[0][1]}`;
+      for (let i = 0; i < points.length - 1; i++) {
+        const p0 = points[i - 1] || points[i];
+        const p1 = points[i];
+        const p2 = points[i + 1];
+        const p3 = points[i + 2] || p2;
+        const cp1x = p1[0] + (p2[0] - p0[0]) / 6;
+        const cp1y = p1[1] + (p2[1] - p0[1]) / 6;
+        const cp2x = p2[0] - (p3[0] - p1[0]) / 6;
+        const cp2y = p2[1] - (p3[1] - p1[1]) / 6;
+        d += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p2[0]} ${p2[1]}`;
+      }
+      return d;
+    };
+
+    const hiPts = highs.map((v, i) => [xOf(i), yOf(v)]);
+    const hiPath = smoothPath(hiPts);
+
+    // Build area path: when lows are partially missing, treat null as
+    // equal to the matching high to keep the band continuous but degenerate
+    // at that point — visually this just pinches the band.
+    let areaPath = "";
+    if (hasLows) {
+      const loPts = lows.map((v, i) =>
+        v != null ? [xOf(i), yOf(v)] : [xOf(i), yOf(highs[i])]
+      );
+      // Stitch: high curve forward, then connect down to last lo point,
+      // then reverse-walk the lo points back with the same smoothing.
+      areaPath =
+        hiPath +
+        ` L ${loPts[loPts.length - 1][0]} ${loPts[loPts.length - 1][1]}`;
+      const loRev = [...loPts].reverse();
+      for (let i = 0; i < loRev.length - 1; i++) {
+        const p0 = loRev[i - 1] || loRev[i];
+        const p1 = loRev[i];
+        const p2 = loRev[i + 1];
+        const p3 = loRev[i + 2] || p2;
+        const cp1x = p1[0] + (p2[0] - p0[0]) / 6;
+        const cp1y = p1[1] + (p2[1] - p0[1]) / 6;
+        const cp2x = p2[0] - (p3[0] - p1[0]) / 6;
+        const cp2y = p2[1] - (p3[1] - p1[1]) / 6;
+        areaPath += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p2[0]} ${p2[1]}`;
+      }
+      areaPath += " Z";
+    }
+
+    const accent = "#EF9F27"; // amber — warm, matches sun icon
+    const accentLow = "#378ADD"; // blue — cooler tone for low
+    const labelEvery = n > 12 ? 2 : 1; // skip labels on dense hourly forecasts
+
+    return html`
+      <div class="graph-wrap">
+        <svg
+          class="graph"
+          viewBox="0 0 ${W} ${H}"
+          aria-hidden="true">
+          ${hasLows
+            ? svg`<path d="${areaPath}" fill="${accent}" fill-opacity="0.15" stroke="none"/>`
+            : ""}
+          <path d="${hiPath}"
+                fill="none"
+                stroke="${accent}"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"/>
+          ${hasLows
+            ? svg`
+              <path d="${smoothPath(
+                lows.map((v, i) =>
+                  v != null ? [xOf(i), yOf(v)] : [xOf(i), yOf(highs[i])]
+                )
+              )}"
+                fill="none"
+                stroke="${accentLow}"
+                stroke-width="1.5"
+                stroke-dasharray="3 3"
+                stroke-linecap="round"
+                stroke-linejoin="round"/>`
+            : ""}
+          ${hiPts.map(
+            (p, i) => svg`
+              <circle cx="${p[0]}" cy="${p[1]}" r="3"
+                      fill="var(--card-background-color, var(--ha-card-background, #fff))"
+                      stroke="${accent}" stroke-width="2"/>`
+          )}
+          ${highs.map((v, i) =>
+            i % labelEvery === 0
+              ? svg`<text x="${xOf(i)}" y="${yOf(v) - 8}"
+                          text-anchor="middle"
+                          font-size="11" font-weight="500"
+                          fill="var(--primary-text-color)">${this._fmt(v, 0)}°</text>`
+              : ""
+          )}
+          ${hasLows
+            ? lows.map((v, i) =>
+                v != null && i % labelEvery === 0
+                  ? svg`<text x="${xOf(i)}" y="${yOf(v) + 14}"
+                              text-anchor="middle"
+                              font-size="10"
+                              fill="var(--secondary-text-color)">${this._fmt(v, 0)}°</text>`
+                  : ""
+              )
+            : ""}
+          ${items.map((f, i) =>
+            i % labelEvery === 0
+              ? svg`<text x="${xOf(i)}" y="${H - 8}"
+                          text-anchor="middle"
+                          font-size="10"
+                          fill="var(--secondary-text-color)">${
+                            this._mode === "hourly"
+                              ? i === 0 ? this._t("now") : this._formatTime(f.datetime)
+                              : this._formatDay(f.datetime)
+                          }</text>`
+              : ""
+          )}
+        </svg>
+      </div>
+    `;
+  }
+
   // ── Render ───────────────────────────────────────────────
   render() {
     if (!this._hass || !this._config) return html``;
@@ -523,24 +691,33 @@ class YetAnotherWeatherCard extends LitElement {
                         </div>
                       </div>`
                   : ""}
-                <div class="forecast">
-                  ${fcItems.map((f, i) => html`
-                    <div class="fc-item">
-                      <div class="fc-label">
-                        ${this._mode === "hourly"
-                          ? i === 0 ? this._t("now") : this._formatTime(f.datetime)
-                          : this._formatDay(f.datetime)}
-                      </div>
-                      <div class="fc-icon">${this._icon(f.condition, 54, this._isDay(f.datetime))}</div>
-                      <div class="fc-hi">${this._fmt(f.temperature, 0)}°</div>
-                      ${this._mode === "daily" && f.templow != null
-                        ? html`<div class="fc-lo">${this._fmt(f.templow, 0)}°</div>`
-                        : ""}
-                      ${f.precipitation_probability != null && f.precipitation_probability > 0
-                        ? html`<div class="fc-pop">${this._fmt(f.precipitation_probability, 0)}%</div>`
-                        : ""}
-                    </div>`)}
-                </div>`
+                ${this._config.forecast_style === "graph" ||
+                this._config.forecast_style === "both"
+                  ? this._renderGraph(fcItems)
+                  : ""}
+                ${this._config.forecast_style === "strip" ||
+                this._config.forecast_style === "both" ||
+                !this._config.forecast_style
+                  ? html`
+                      <div class="forecast">
+                        ${fcItems.map((f, i) => html`
+                          <div class="fc-item">
+                            <div class="fc-label">
+                              ${this._mode === "hourly"
+                                ? i === 0 ? this._t("now") : this._formatTime(f.datetime)
+                                : this._formatDay(f.datetime)}
+                            </div>
+                            <div class="fc-icon">${this._icon(f.condition, 54, this._isDay(f.datetime))}</div>
+                            <div class="fc-hi">${this._fmt(f.temperature, 0)}°</div>
+                            ${this._mode === "daily" && f.templow != null
+                              ? html`<div class="fc-lo">${this._fmt(f.templow, 0)}°</div>`
+                              : ""}
+                            ${f.precipitation_probability != null && f.precipitation_probability > 0
+                              ? html`<div class="fc-pop">${this._fmt(f.precipitation_probability, 0)}%</div>`
+                              : ""}
+                          </div>`)}
+                      </div>`
+                  : ""}`
             : ""}
         </div>
       </ha-card>`;
@@ -628,6 +805,17 @@ class YetAnotherWeatherCard extends LitElement {
         box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
       }
 
+      .graph-wrap {
+        margin: 4px 0 12px;
+        width: 100%;
+      }
+      .graph {
+        display: block;
+        width: 100%;
+        height: auto;
+        overflow: visible;
+      }
+
       .forecast {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(50px, 1fr));
@@ -689,6 +877,7 @@ class YetAnotherWeatherCard extends LitElement {
       show_forecast: true,
       show_stats: true,
       forecast_items: 7,
+      forecast_style: "strip",
     };
   }
 
@@ -764,6 +953,19 @@ class YetAnotherWeatherCardEditor extends LitElement {
               },
             },
           },
+          {
+            name: "forecast_style",
+            selector: {
+              select: {
+                mode: "dropdown",
+                options: [
+                  { value: "strip", label: "Strip" },
+                  { value: "graph", label: "Graph" },
+                  { value: "both", label: "Both" },
+                ],
+              },
+            },
+          },
         ],
       },
       {
@@ -804,6 +1006,7 @@ class YetAnotherWeatherCardEditor extends LitElement {
       default_mode: "Default forecast view",
       forecast_items: "Forecast items",
       language: "Language",
+      forecast_style: "Forecast display",
       temperature_entity: "Temperature sensor (optional)",
       humidity_entity: "Humidity sensor (optional)",
       pressure_entity: "Pressure sensor (optional)",
@@ -821,6 +1024,7 @@ class YetAnotherWeatherCardEditor extends LitElement {
       pressure_entity: "Overrides the weather entity's pressure",
       forecast_items: "Number of forecast cells (1–24)",
       language: "Leave Auto to follow your Home Assistant language",
+      forecast_style: "Strip = cells with icons, Graph = filled area chart, Both = chart above cells",
     };
     return helpers[schema.name];
   };
@@ -858,6 +1062,7 @@ class YetAnotherWeatherCardEditor extends LitElement {
     const data = {
       default_mode: "hourly",
       forecast_items: 7,
+      forecast_style: "strip",
       show_current: true,
       show_stats: true,
       show_forecast: true,
@@ -904,7 +1109,7 @@ window.customCards.push({
 });
 
 console.info(
-  "%c YET-ANOTHER-WEATHER-CARD %c v1.3.0 ",
+  "%c YET-ANOTHER-WEATHER-CARD %c v1.4.0 ",
   "color: white; background: #185FA5; font-weight: 700; padding: 2px 6px; border-radius: 3px 0 0 3px;",
   "color: #185FA5; background: white; font-weight: 700; padding: 2px 6px; border: 1px solid #185FA5; border-radius: 0 3px 3px 0;"
 );
