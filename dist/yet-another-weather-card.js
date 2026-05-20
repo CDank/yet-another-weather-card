@@ -1,0 +1,580 @@
+/**
+ * Yet Another Weather Card
+ * ───────────────────
+ * A beautiful Home Assistant Lovelace card with animated SVG weather icons,
+ * toggleable hourly/daily forecast, and support for custom temperature,
+ * humidity, and pressure sensor entities.
+ *
+ * Version: 1.0.0
+ * Author:  Balazs Skorka
+ *
+ * Installation (manual, easiest):
+ *   1. Copy this file to /config/www/yet-another-weather-card.js
+ *   2. Settings → Dashboards → Resources → Add Resource
+ *        URL : /local/yet-another-weather-card.js
+ *        Type: JavaScript Module
+ *   3. Hard refresh your browser (Ctrl/Cmd + Shift + R).
+ *   4. Add a card to your dashboard:
+ *        type: custom:yet-another-weather-card
+ *        entity: weather.your_weather_entity
+ *
+ * Installation (HACS):
+ *   HACS → Frontend → ⋮ → Custom repositories → add your GitHub repo URL
+ *   as a "Lovelace" category, then install from the list.
+ */
+
+import {
+  LitElement,
+  html,
+  css,
+} from "https://unpkg.com/lit-element@2.5.1/lit-element.js?module";
+
+class YetAnotherWeatherCard extends LitElement {
+  static get properties() {
+    return {
+      hass: { type: Object },
+      _config: { type: Object },
+      _forecastHourly: { type: Array },
+      _forecastDaily: { type: Array },
+      _mode: { type: String },
+    };
+  }
+
+  constructor() {
+    super();
+    this._forecastHourly = [];
+    this._forecastDaily = [];
+    this._mode = "hourly";
+    this._unsubHourly = null;
+    this._unsubDaily = null;
+    this._subscribed = false;
+  }
+
+  setConfig(config) {
+    if (!config || !config.entity) {
+      throw new Error("You need to define a weather entity");
+    }
+    if (!config.entity.startsWith("weather.")) {
+      throw new Error("entity must be a weather.* entity");
+    }
+    this._config = {
+      default_mode: "hourly",
+      show_current: true,
+      show_forecast: true,
+      show_stats: true,
+      forecast_items: 7,
+      ...config,
+    };
+    this._mode = this._config.default_mode;
+  }
+
+  set hass(value) {
+    this._hass = value;
+    if (!this._subscribed && value) {
+      this._subscribed = true;
+      this._subscribeForecasts();
+    }
+    this.requestUpdate();
+  }
+
+  get hass() {
+    return this._hass;
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    this._unsubscribeForecasts();
+    this._subscribed = false;
+  }
+
+  connectedCallback() {
+    super.connectedCallback();
+    if (this._hass && !this._subscribed) {
+      this._subscribed = true;
+      this._subscribeForecasts();
+    }
+  }
+
+  // ── Forecast subscriptions (modern HA WebSocket API) ─────
+  async _subscribeForecasts() {
+    if (!this._hass || !this._config) return;
+    this._unsubscribeForecasts();
+
+    const tryType = async (type) => {
+      try {
+        return await this._hass.connection.subscribeMessage(
+          (msg) => {
+            if (type === "hourly") this._forecastHourly = msg.forecast || [];
+            else this._forecastDaily = msg.forecast || [];
+            this.requestUpdate();
+          },
+          {
+            type: "weather/subscribe_forecast",
+            forecast_type: type,
+            entity_id: this._config.entity,
+          }
+        );
+      } catch (e) {
+        // This forecast_type is not supported by the integration
+        return null;
+      }
+    };
+
+    this._unsubHourly = await tryType("hourly");
+    this._unsubDaily = await tryType("daily");
+  }
+
+  _unsubscribeForecasts() {
+    if (this._unsubHourly) {
+      try { this._unsubHourly(); } catch (e) {}
+      this._unsubHourly = null;
+    }
+    if (this._unsubDaily) {
+      try { this._unsubDaily(); } catch (e) {}
+      this._unsubDaily = null;
+    }
+  }
+
+  // ── Value resolver: custom sensor wins, weather attr is fallback
+  _resolveValue(customEntity, weatherAttr, defaultUnit) {
+    const weather = this._hass.states[this._config.entity];
+    if (customEntity && this._hass.states[customEntity]) {
+      const s = this._hass.states[customEntity];
+      const num = parseFloat(s.state);
+      return {
+        value: isNaN(num) ? s.state : num,
+        unit: s.attributes.unit_of_measurement || defaultUnit || "",
+      };
+    }
+    if (weather && weather.attributes[weatherAttr] != null) {
+      return {
+        value: weather.attributes[weatherAttr],
+        unit:
+          weather.attributes[`${weatherAttr}_unit`] ||
+          defaultUnit ||
+          "",
+      };
+    }
+    return null;
+  }
+
+  _fmt(v, decimals = 1) {
+    if (v == null || v === "") return "—";
+    if (typeof v !== "number") return v;
+    return decimals === 0 ? Math.round(v).toString() : v.toFixed(decimals);
+  }
+
+  _isDay(dt) {
+    if (!dt) {
+      const sun = this._hass.states["sun.sun"];
+      return !sun || sun.state === "above_horizon";
+    }
+    const h = new Date(dt).getHours();
+    return h >= 6 && h < 20;
+  }
+
+  _formatTime(dt) {
+    return new Date(dt).toLocaleTimeString(
+      this._hass.locale?.language || "en",
+      { hour: "2-digit", minute: "2-digit", hour12: false }
+    );
+  }
+
+  _formatDay(dt) {
+    const d = new Date(dt);
+    const today = new Date();
+    if (d.toDateString() === today.toDateString()) return "Today";
+    return d.toLocaleDateString(this._hass.locale?.language || "en", {
+      weekday: "short",
+    });
+  }
+
+  _prettyCondition(c) {
+    if (!c) return "";
+    return c.replace(/[-_]/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
+  }
+
+  // ── Animated icon factory ────────────────────────────────
+  _icon(condition, size = 88, isDay = true) {
+    const c = (condition || "").toLowerCase();
+
+    const sun = (cx = 50, cy = 38, r = 13, ray = 8) => html`
+      <g transform="translate(${cx} ${cy})">
+        <g class="sun-rays" fill="#EF9F27">
+          <rect x="-1.5" y="${-r - ray - 4}" width="3" height="${ray}" rx="1.5"/>
+          <rect x="-1.5" y="${r + 4}" width="3" height="${ray}" rx="1.5"/>
+          <rect x="${-r - ray - 4}" y="-1.5" width="${ray}" height="3" rx="1.5"/>
+          <rect x="${r + 4}" y="-1.5" width="${ray}" height="3" rx="1.5"/>
+          <g transform="rotate(45)">
+            <rect x="-1.5" y="${-r - ray - 4}" width="3" height="${ray}" rx="1.5"/>
+            <rect x="-1.5" y="${r + 4}" width="3" height="${ray}" rx="1.5"/>
+            <rect x="${-r - ray - 4}" y="-1.5" width="${ray}" height="3" rx="1.5"/>
+            <rect x="${r + 4}" y="-1.5" width="${ray}" height="3" rx="1.5"/>
+          </g>
+        </g>
+        <circle r="${r}" fill="#EF9F27"/>
+      </g>`;
+
+    const moon = (cx = 50, cy = 40, r = 16) => html`
+      <g transform="translate(${cx} ${cy})">
+        <circle r="${r}" fill="#D3D1C7"/>
+        <circle cx="${r * 0.4}" cy="${-r * 0.2}" r="${r}"
+                fill="var(--card-background-color, var(--ha-card-background, #1c1c1e))"/>
+      </g>`;
+
+    const cloud = (cx, cy, scale = 1, color = "#888780", cls = "cloud") => html`
+      <g class="${cls}" transform="translate(${cx} ${cy}) scale(${scale})">
+        <ellipse cx="20" cy="8" rx="22" ry="11" fill="${color}"/>
+        <circle cx="10" cy="4" r="9" fill="${color}"/>
+        <circle cx="28" cy="2" r="11" fill="${color}"/>
+      </g>`;
+
+    const drops = (x, y, n = 3, color = "#378ADD") =>
+      Array.from({ length: n }).map(
+        (_, i) => html`
+          <line class="raindrop" style="animation-delay:${i * 0.3}s"
+                x1="${x + i * 7}" y1="${y}" x2="${x + i * 7}" y2="${y + 5}"
+                stroke="${color}" stroke-width="1.5" stroke-linecap="round"/>`
+      );
+
+    const flakes = (x, y, n = 3) =>
+      Array.from({ length: n }).map(
+        (_, i) => html`
+          <circle class="snowflake" style="animation-delay:${i * 0.4}s"
+                  cx="${x + i * 7}" cy="${y}" r="1.6" fill="#85B7EB"/>`
+      );
+
+    let body;
+    if (c === "sunny" || c === "clear") body = sun();
+    else if (c === "clear-night") body = moon();
+    else if (c === "partlycloudy" || c === "partly-cloudy")
+      body = html`${isDay ? sun(38, 30, 11, 6) : moon(38, 32, 13)}
+                  ${cloud(36, 50, 0.9)}`;
+    else if (c === "cloudy")
+      body = html`${cloud(20, 38, 1.1, "#B4B2A9", "cloud")}
+                  ${cloud(35, 56, 0.9, "#888780", "cloud2")}`;
+    else if (c === "fog")
+      body = html`
+        <g class="fog">
+          <rect x="18" y="38" width="64" height="3" rx="1.5" fill="#B4B2A9"/>
+          <rect x="22" y="50" width="56" height="3" rx="1.5" fill="#888780"/>
+          <rect x="14" y="62" width="64" height="3" rx="1.5" fill="#B4B2A9"/>
+          <rect x="20" y="74" width="60" height="3" rx="1.5" fill="#888780"/>
+        </g>`;
+    else if (c === "rainy" || c === "pouring")
+      body = html`${cloud(20, 28, 1.2, "#5F5E5A")}
+                  ${drops(28, 62, c === "pouring" ? 5 : 3)}`;
+    else if (c === "snowy" || c === "snowy-rainy")
+      body = html`${cloud(20, 28, 1.2, "#B4B2A9")}
+                  ${c === "snowy-rainy" ? drops(28, 62, 2) : ""}
+                  ${flakes(c === "snowy-rainy" ? 50 : 28, 64, 3)}`;
+    else if (c === "lightning" || c === "lightning-rainy")
+      body = html`${cloud(20, 28, 1.2, "#5F5E5A")}
+                  <path class="bolt" d="M48 56 L42 72 L50 72 L46 86 L60 66 L52 66 L56 56 Z"
+                        fill="#EF9F27"/>
+                  ${c === "lightning-rainy" ? drops(28, 78, 3) : ""}`;
+    else if (c === "windy" || c === "windy-variant")
+      body = html`
+        <g class="wind">
+          <path d="M20 35 Q40 30 60 35 Q70 37 65 42 Q60 45 55 42"
+                fill="none" stroke="#888780" stroke-width="3" stroke-linecap="round"/>
+          <path d="M15 55 Q45 50 75 55 Q85 57 80 62 Q75 65 70 62"
+                fill="none" stroke="#B4B2A9" stroke-width="3" stroke-linecap="round"/>
+          <path d="M20 75 Q40 70 60 75" fill="none" stroke="#888780"
+                stroke-width="3" stroke-linecap="round"/>
+        </g>`;
+    else if (c === "hail")
+      body = html`${cloud(20, 28, 1.2, "#5F5E5A")}
+                  <circle class="hailstone" cx="32" cy="66" r="2.5" fill="#85B7EB"/>
+                  <circle class="hailstone" style="animation-delay:.3s" cx="42" cy="66" r="2.5" fill="#85B7EB"/>
+                  <circle class="hailstone" style="animation-delay:.6s" cx="52" cy="66" r="2.5" fill="#85B7EB"/>`;
+    else if (c === "exceptional")
+      body = html`${cloud(20, 28, 1.2, "#993C1D")}
+                  <text x="50" y="80" text-anchor="middle" font-size="22"
+                        font-weight="700" fill="#993C1D">!</text>`;
+    else body = cloud(28, 40, 1.1, "#B4B2A9");
+
+    return html`
+      <svg width="${size}" height="${size}" viewBox="0 0 100 100" aria-hidden="true">
+        ${body}
+      </svg>`;
+  }
+
+  // ── Render ───────────────────────────────────────────────
+  render() {
+    if (!this._hass || !this._config) return html``;
+    const w = this._hass.states[this._config.entity];
+    if (!w) {
+      return html`<ha-card>
+        <div class="error">Weather entity '${this._config.entity}' not found</div>
+      </ha-card>`;
+    }
+
+    const condition = w.state;
+    const friendly =
+      this._config.name || w.attributes.friendly_name || this._config.entity;
+
+    const tempData = this._resolveValue(
+      this._config.temperature_entity,
+      "temperature",
+      "°C"
+    );
+    const tempUnit = tempData?.unit || w.attributes.temperature_unit || "°C";
+    const humidityData = this._resolveValue(
+      this._config.humidity_entity,
+      "humidity",
+      "%"
+    );
+    const pressureData = this._resolveValue(
+      this._config.pressure_entity,
+      "pressure",
+      "hPa"
+    );
+
+    const fc =
+      this._mode === "hourly" ? this._forecastHourly : this._forecastDaily;
+    const fcItems = (fc || []).slice(0, this._config.forecast_items);
+    const hasHourly = this._forecastHourly && this._forecastHourly.length > 0;
+    const hasDaily = this._forecastDaily && this._forecastDaily.length > 0;
+
+    return html`
+      <ha-card>
+        <div class="card">
+          ${this._config.show_current
+            ? html`
+                <div class="top">
+                  <div class="left">
+                    <div class="loc">${friendly}</div>
+                    <div class="temp">
+                      ${this._fmt(tempData?.value, 1)}<span class="unit">${tempUnit}</span>
+                    </div>
+                    <div class="cond">${this._prettyCondition(condition)}</div>
+                  </div>
+                  <div class="icon-wrap">${this._icon(condition, 88, this._isDay())}</div>
+                </div>`
+            : ""}
+
+          ${this._config.show_stats && (humidityData || pressureData || w.attributes.wind_speed != null)
+            ? html`
+                <div class="stats">
+                  ${humidityData
+                    ? html`<div class="stat">
+                        <div class="stat-label">Humidity</div>
+                        <div class="stat-val">${this._fmt(humidityData.value, 0)}${humidityData.unit || "%"}</div>
+                      </div>`
+                    : ""}
+                  ${pressureData
+                    ? html`<div class="stat">
+                        <div class="stat-label">Pressure</div>
+                        <div class="stat-val">${this._fmt(pressureData.value, 0)} ${pressureData.unit || "hPa"}</div>
+                      </div>`
+                    : ""}
+                  ${w.attributes.wind_speed != null
+                    ? html`<div class="stat">
+                        <div class="stat-label">Wind</div>
+                        <div class="stat-val">${this._fmt(w.attributes.wind_speed, 0)} ${w.attributes.wind_speed_unit || "km/h"}</div>
+                      </div>`
+                    : ""}
+                </div>`
+            : ""}
+
+          ${this._config.show_forecast && (hasHourly || hasDaily)
+            ? html`
+                ${hasHourly && hasDaily
+                  ? html`
+                      <div class="toggle">
+                        <div class="tab ${this._mode === "hourly" ? "active" : ""}"
+                             @click=${() => { this._mode = "hourly"; this.requestUpdate(); }}>
+                          Hourly
+                        </div>
+                        <div class="tab ${this._mode === "daily" ? "active" : ""}"
+                             @click=${() => { this._mode = "daily"; this.requestUpdate(); }}>
+                          Daily
+                        </div>
+                      </div>`
+                  : ""}
+                <div class="forecast">
+                  ${fcItems.map((f, i) => html`
+                    <div class="fc-item">
+                      <div class="fc-label">
+                        ${this._mode === "hourly"
+                          ? i === 0 ? "Now" : this._formatTime(f.datetime)
+                          : this._formatDay(f.datetime)}
+                      </div>
+                      <div class="fc-icon">${this._icon(f.condition, 36, this._isDay(f.datetime))}</div>
+                      <div class="fc-hi">${this._fmt(f.temperature, 0)}°</div>
+                      ${this._mode === "daily" && f.templow != null
+                        ? html`<div class="fc-lo">${this._fmt(f.templow, 0)}°</div>`
+                        : ""}
+                      ${f.precipitation_probability != null && f.precipitation_probability > 0
+                        ? html`<div class="fc-pop">${this._fmt(f.precipitation_probability, 0)}%</div>`
+                        : ""}
+                    </div>`)}
+                </div>`
+            : ""}
+        </div>
+      </ha-card>`;
+  }
+
+  static get styles() {
+    return css`
+      :host { display: block; }
+      ha-card { overflow: hidden; }
+      .card { padding: 20px 22px; }
+      .error { padding: 20px; color: var(--error-color, #db4437); }
+
+      .top {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        margin-bottom: 16px;
+        gap: 12px;
+      }
+      .loc { font-size: 13px; color: var(--secondary-text-color); margin-bottom: 4px; }
+      .temp {
+        font-size: 54px;
+        font-weight: 500;
+        letter-spacing: -2px;
+        line-height: 1;
+        color: var(--primary-text-color);
+      }
+      .temp .unit {
+        font-size: 22px;
+        color: var(--secondary-text-color);
+        font-weight: 400;
+        vertical-align: super;
+        margin-left: 2px;
+      }
+      .cond {
+        font-size: 14px;
+        color: var(--primary-text-color);
+        font-weight: 500;
+        margin-top: 8px;
+      }
+      .icon-wrap { flex-shrink: 0; }
+
+      .stats {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(70px, 1fr));
+        gap: 8px;
+        padding: 12px 0;
+        margin-bottom: 14px;
+        border-top: 1px solid var(--divider-color);
+        border-bottom: 1px solid var(--divider-color);
+      }
+      .stat { text-align: center; }
+      .stat-label {
+        font-size: 10px;
+        color: var(--secondary-text-color);
+        margin-bottom: 2px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+      .stat-val { font-size: 15px; font-weight: 500; color: var(--primary-text-color); }
+
+      .toggle {
+        display: flex;
+        background: var(--secondary-background-color);
+        border-radius: 8px;
+        padding: 3px;
+        margin-bottom: 12px;
+        gap: 2px;
+      }
+      .tab {
+        flex: 1;
+        text-align: center;
+        font-size: 12px;
+        padding: 6px;
+        border-radius: 6px;
+        cursor: pointer;
+        color: var(--secondary-text-color);
+        transition: background 0.2s, color 0.2s;
+        user-select: none;
+      }
+      .tab.active {
+        background: var(--card-background-color, var(--ha-card-background));
+        color: var(--primary-text-color);
+        font-weight: 500;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+      }
+
+      .forecast {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(50px, 1fr));
+        gap: 4px;
+      }
+      .fc-item {
+        text-align: center;
+        padding: 8px 2px;
+        border-radius: 8px;
+        transition: background 0.15s;
+      }
+      .fc-item:hover { background: var(--secondary-background-color); }
+      .fc-label { font-size: 11px; color: var(--secondary-text-color); margin-bottom: 4px; }
+      .fc-icon { display: flex; justify-content: center; margin-bottom: 2px; }
+      .fc-hi { font-size: 13px; font-weight: 500; color: var(--primary-text-color); }
+      .fc-lo { font-size: 11px; color: var(--secondary-text-color); }
+      .fc-pop { font-size: 10px; color: var(--info-color, #378add); margin-top: 2px; }
+
+      /* ── Animations ── */
+      @keyframes spin     { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+      @keyframes drift    { 0%,100% { transform: translateX(0); } 50% { transform: translateX(3px); } }
+      @keyframes drift2   { 0%,100% { transform: translateX(0); } 50% { transform: translateX(-3px); } }
+      @keyframes drop     { 0% { transform: translateY(-3px); opacity: 0; } 30% { opacity: 1; } 100% { transform: translateY(10px); opacity: 0; } }
+      @keyframes fall     { 0% { transform: translateY(-3px) rotate(0); opacity: 0; } 30% { opacity: 1; } 100% { transform: translateY(14px) rotate(180deg); opacity: 0; } }
+      @keyframes flicker  { 0%,60%,100% { opacity: 1; } 65%,75% { opacity: 0.2; } }
+      @keyframes sway     { 0%,100% { transform: translateX(0); } 50% { transform: translateX(4px); } }
+      @keyframes fogShift { 0%,100% { transform: translateX(0); } 50% { transform: translateX(2px); } }
+      @keyframes hailFall { 0% { transform: translateY(-2px); opacity: 0; } 30% { opacity: 1; } 100% { transform: translateY(10px); opacity: 0; } }
+
+      .sun-rays  { transform-origin: center; animation: spin 20s linear infinite; }
+      .cloud     { animation: drift 4s ease-in-out infinite; transform-origin: center; }
+      .cloud2    { animation: drift2 5s ease-in-out infinite; transform-origin: center; }
+      .raindrop  { animation: drop 1.2s ease-in infinite; }
+      .snowflake { animation: fall 2.5s ease-in infinite; transform-origin: center; }
+      .bolt      { animation: flicker 2s ease-in-out infinite; }
+      .wind      { animation: sway 3s ease-in-out infinite; transform-origin: center; }
+      .fog       { animation: fogShift 4s ease-in-out infinite; }
+      .hailstone { animation: hailFall 1s ease-in infinite; }
+
+      @media (prefers-reduced-motion: reduce) {
+        .sun-rays, .cloud, .cloud2, .raindrop, .snowflake,
+        .bolt, .wind, .fog, .hailstone { animation: none; }
+      }
+    `;
+  }
+
+  static getStubConfig(hass) {
+    const weatherEntity = hass
+      ? Object.keys(hass.states).find((id) => id.startsWith("weather."))
+      : null;
+    return {
+      entity: weatherEntity || "weather.home",
+      default_mode: "hourly",
+      show_current: true,
+      show_forecast: true,
+      show_stats: true,
+      forecast_items: 7,
+    };
+  }
+
+  getCardSize() {
+    return 5;
+  }
+}
+
+customElements.define("yet-another-weather-card", YetAnotherWeatherCard);
+
+window.customCards = window.customCards || [];
+window.customCards.push({
+  type: "yet-another-weather-card",
+  name: "Yet Another Weather Card",
+  description: "Beautiful weather card with animated icons, forecast toggle, and custom sensor support",
+  preview: false,
+});
+
+console.info(
+  "%c YET-ANOTHER-WEATHER-CARD %c v1.0.0 ",
+  "color: white; background: #185FA5; font-weight: 700; padding: 2px 6px; border-radius: 3px 0 0 3px;",
+  "color: #185FA5; background: white; font-weight: 700; padding: 2px 6px; border: 1px solid #185FA5; border-radius: 0 3px 3px 0;"
+);
