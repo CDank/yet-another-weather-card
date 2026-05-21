@@ -6,7 +6,8 @@
 
 Yes, the world needed another one. A custom weather card for Home Assistant with animated SVG icons, toggleable hourly/daily forecast, and support for custom temperature, humidity, and pressure sensor entities.
 
-<img width="507" height="516" alt="image" src="https://github.com/user-attachments/assets/398de63d-e99d-4fca-bbf9-b2c9b65093ef" />
+<img width="507" height="516" alt="image" src="https://github.com/user-attachments/assets/398de63d-e99d-4fca-bbf9-b2c9b65093ef" /> <img width="508" height="516" alt="image" src="https://github.com/user-attachments/assets/761fba50-6d9b-4abd-ac65-b7afe0c71082" />
+
 
 
 ## Features
