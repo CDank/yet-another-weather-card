@@ -119,6 +119,19 @@ class YetAnotherWeatherCard extends LitElement {
       ...config,
     };
     this._mode = this._config.default_mode;
+
+    // Reset cached location so the next hass update (or immediate fetch
+    // below) always fires a fresh Open-Meteo request with the new config.
+    this._omLastLat = null;
+    this._omLastLon = null;
+    this._omLastFetch = 0;
+
+    // If hass is already available (e.g. config edited on an existing card),
+    // kick off a fetch immediately instead of waiting for the next hass tick.
+    if (this._hass && this._locationMode()) {
+      const loc = this._resolveLocation();
+      if (loc) this._fetchOpenMeteoWeather(loc.lat, loc.lon);
+    }
   }
 
   set hass(value) {
