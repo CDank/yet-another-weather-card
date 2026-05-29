@@ -475,7 +475,7 @@ class YetAnotherWeatherCard extends LitElement {
   }
 
   _lang() {
-    const supported = ["en", "de", "hu"];
+    const supported = ["en", "de", "fr", "hu"];
     // Explicit config option wins
     if (this._config?.language && supported.includes(this._config.language)) {
       return this._config.language;
