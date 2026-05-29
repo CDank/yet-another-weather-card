@@ -73,6 +73,9 @@ class YetAnotherWeatherCard extends LitElement {
       _forecastHourly: { type: Array },
       _forecastDaily: { type: Array },
       _mode: { type: String },
+      _omCurrent: { type: Object },
+      _omHourly: { type: Array },
+      _omDaily: { type: Array },
     };
   }
 
@@ -84,13 +87,25 @@ class YetAnotherWeatherCard extends LitElement {
     this._unsubHourly = null;
     this._unsubDaily = null;
     this._subscribed = false;
+    this._omCurrent = null;
+    this._omHourly = [];
+    this._omDaily = [];
+    this._omLastLat = null;
+    this._omLastLon = null;
+    this._omLastFetch = 0;
   }
 
   setConfig(config) {
-    if (!config || !config.entity) {
-      throw new Error("You need to define a weather entity");
+    if (!config) throw new Error("Invalid configuration");
+    const hasLocation =
+      config.location_entity ||
+      (config.latitude_entity && config.longitude_entity);
+    if (!config.entity && !hasLocation) {
+      throw new Error(
+        "You need to define a weather entity or location entities (location_entity, or latitude_entity + longitude_entity)"
+      );
     }
-    if (!config.entity.startsWith("weather.")) {
+    if (config.entity && !config.entity.startsWith("weather.")) {
       throw new Error("entity must be a weather.* entity");
     }
     this._config = {
@@ -109,7 +124,18 @@ class YetAnotherWeatherCard extends LitElement {
     this._hass = value;
     if (!this._subscribed && value) {
       this._subscribed = true;
-      this._subscribeForecasts();
+      if (this._config?.entity) this._subscribeForecasts();
+    }
+    if (value && this._config && this._locationMode()) {
+      const loc = this._resolveLocation();
+      if (loc) {
+        const coordsChanged =
+          loc.lat !== this._omLastLat || loc.lon !== this._omLastLon;
+        const stale = Date.now() - this._omLastFetch > 600_000;
+        if (coordsChanged || stale) {
+          this._fetchOpenMeteoWeather(loc.lat, loc.lon);
+        }
+      }
     }
     this.requestUpdate();
   }
@@ -128,13 +154,17 @@ class YetAnotherWeatherCard extends LitElement {
     super.connectedCallback();
     if (this._hass && !this._subscribed) {
       this._subscribed = true;
-      this._subscribeForecasts();
+      if (this._config?.entity) this._subscribeForecasts();
+    }
+    if (this._hass && this._config && this._locationMode()) {
+      const loc = this._resolveLocation();
+      if (loc) this._fetchOpenMeteoWeather(loc.lat, loc.lon);
     }
   }
 
   // ── Forecast subscriptions (modern HA WebSocket API) ─────
   async _subscribeForecasts() {
-    if (!this._hass || !this._config) return;
+    if (!this._hass || !this._config || !this._config.entity) return;
     this._unsubscribeForecasts();
 
     const tryType = async (type) => {
@@ -169,6 +199,105 @@ class YetAnotherWeatherCard extends LitElement {
     if (this._unsubDaily) {
       try { this._unsubDaily(); } catch (e) {}
       this._unsubDaily = null;
+    }
+  }
+
+  // ── Location-based mode helpers ──────────────────────────
+
+  _locationMode() {
+    return !!(
+      this._config?.location_entity ||
+      (this._config?.latitude_entity && this._config?.longitude_entity)
+    );
+  }
+
+  _resolveLocation() {
+    if (!this._hass || !this._config) return null;
+    const le = this._config.location_entity;
+    if (le) {
+      const s = this._hass.states[le];
+      if (s?.attributes.latitude != null && s?.attributes.longitude != null) {
+        return { lat: s.attributes.latitude, lon: s.attributes.longitude };
+      }
+    }
+    const latE = this._config.latitude_entity;
+    const lonE = this._config.longitude_entity;
+    if (latE && lonE) {
+      const latS = this._hass.states[latE];
+      const lonS = this._hass.states[lonE];
+      if (latS && lonS) {
+        const lat = parseFloat(latS.state);
+        const lon = parseFloat(lonS.state);
+        if (!isNaN(lat) && !isNaN(lon)) return { lat, lon };
+      }
+    }
+    return null;
+  }
+
+  _wmoToCondition(code) {
+    const map = {
+      0: "sunny", 1: "sunny", 2: "partlycloudy", 3: "cloudy",
+      45: "fog", 48: "fog",
+      51: "rainy", 53: "rainy", 55: "pouring",
+      56: "snowy-rainy", 57: "snowy-rainy",
+      61: "rainy", 63: "rainy", 65: "pouring",
+      66: "snowy-rainy", 67: "snowy-rainy",
+      71: "snowy", 73: "snowy", 75: "snowy", 77: "snowy",
+      80: "rainy", 81: "rainy", 82: "pouring",
+      85: "snowy", 86: "snowy",
+      95: "lightning-rainy",
+      96: "lightning-rainy", 99: "lightning-rainy",
+    };
+    return map[code] ?? "cloudy";
+  }
+
+  async _fetchOpenMeteoWeather(lat, lon) {
+    const useFahrenheit =
+      this._hass?.config?.unit_system?.temperature === "°F";
+    const tempUnit = useFahrenheit ? "fahrenheit" : "celsius";
+    const url =
+      `https://api.open-meteo.com/v1/forecast` +
+      `?latitude=${lat}&longitude=${lon}` +
+      `&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,surface_pressure` +
+      `&hourly=temperature_2m,weather_code,precipitation_probability` +
+      `&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max` +
+      `&wind_speed_unit=kmh&temperature_unit=${tempUnit}&timezone=auto&forecast_days=7&forecast_hours=24`;
+    try {
+      const resp = await fetch(url);
+      if (!resp.ok) return;
+      const data = await resp.json();
+      const c = data.current;
+      this._omCurrent = {
+        condition: this._wmoToCondition(c.weather_code),
+        temperature: c.temperature_2m,
+        humidity: c.relative_humidity_2m,
+        wind_speed: c.wind_speed_10m,
+        pressure: c.surface_pressure,
+        temperature_unit: useFahrenheit ? "°F" : "°C",
+        wind_speed_unit: "km/h",
+        pressure_unit: "hPa",
+      };
+      const h = data.hourly;
+      this._omHourly = h.time.map((dt, i) => ({
+        datetime: dt,
+        condition: this._wmoToCondition(h.weather_code[i]),
+        temperature: h.temperature_2m[i],
+        precipitation_probability: h.precipitation_probability[i],
+      }));
+      const d = data.daily;
+      this._omDaily = d.time.map((dt, i) => ({
+        datetime: dt,
+        condition: this._wmoToCondition(d.weather_code[i]),
+        temperature: d.temperature_2m_max[i],
+        templow: d.temperature_2m_min[i],
+        precipitation_probability: d.precipitation_probability_max[i],
+      }));
+      this._omLastLat = lat;
+      this._omLastLon = lon;
+      this._omLastFetch = Date.now();
+      this.requestUpdate();
+    } catch (e) {
+      // Network error — keep displaying previous data
     }
   }
 
@@ -637,39 +766,90 @@ class YetAnotherWeatherCard extends LitElement {
   // ── Render ───────────────────────────────────────────────
   render() {
     if (!this._hass || !this._config) return html``;
-    const w = this._hass.states[this._config.entity];
-    if (!w) {
-      return html`<ha-card>
-        <div class="error">Weather entity '${this._config.entity}' not found</div>
-      </ha-card>`;
+
+    // ── Normalise data per mode so the template below works for both ──
+    let condition, friendly, tempData, humidityData, pressureData, windSpeed, windUnit, fcHourly, fcDaily;
+
+    if (this._locationMode()) {
+      // Location-based mode: data comes from Open-Meteo
+      const loc = this._resolveLocation();
+      if (!loc) {
+        return html`<ha-card>
+          <div class="error">
+            Location entity not found or has no coordinates
+          </div>
+        </ha-card>`;
+      }
+      if (!this._omCurrent) {
+        return html`<ha-card>
+          <div class="loading">Loading weather data…</div>
+        </ha-card>`;
+      }
+      const om = this._omCurrent;
+      condition = om.condition;
+      friendly =
+        this._config.name ||
+        (this._config.location_entity
+          ? this._hass.states[this._config.location_entity]?.attributes
+              .friendly_name
+          : null) ||
+        "Weather";
+      // Custom sensors can still override Open-Meteo values
+      tempData =
+        this._resolveValue(this._config.temperature_entity, null, "°C") ||
+        { value: om.temperature, unit: om.temperature_unit };
+      humidityData =
+        this._resolveValue(this._config.humidity_entity, null, "%") ||
+        { value: om.humidity, unit: "%" };
+      pressureData =
+        this._resolveValue(this._config.pressure_entity, null, "hPa") ||
+        { value: om.pressure, unit: om.pressure_unit };
+      windSpeed = om.wind_speed;
+      windUnit = om.wind_speed_unit;
+      fcHourly = this._omHourly;
+      fcDaily = this._omDaily;
+    } else {
+      // Entity-based mode (existing behaviour)
+      const w = this._hass.states[this._config.entity];
+      if (!w) {
+        return html`<ha-card>
+          <div class="error">Weather entity '${this._config.entity}' not found</div>
+        </ha-card>`;
+      }
+      condition = w.state;
+      friendly =
+        this._config.name || w.attributes.friendly_name || this._config.entity;
+      tempData = this._resolveValue(
+        this._config.temperature_entity,
+        "temperature",
+        "°C"
+      );
+      humidityData = this._resolveValue(
+        this._config.humidity_entity,
+        "humidity",
+        "%"
+      );
+      pressureData = this._resolveValue(
+        this._config.pressure_entity,
+        "pressure",
+        "hPa"
+      );
+      windSpeed = w.attributes.wind_speed;
+      windUnit = w.attributes.wind_speed_unit || "km/h";
+      fcHourly = this._forecastHourly;
+      fcDaily = this._forecastDaily;
     }
 
-    const condition = w.state;
-    const friendly =
-      this._config.name || w.attributes.friendly_name || this._config.entity;
-
-    const tempData = this._resolveValue(
-      this._config.temperature_entity,
-      "temperature",
-      "°C"
-    );
-    const tempUnit = tempData?.unit || w.attributes.temperature_unit || "°C";
-    const humidityData = this._resolveValue(
-      this._config.humidity_entity,
-      "humidity",
-      "%"
-    );
-    const pressureData = this._resolveValue(
-      this._config.pressure_entity,
-      "pressure",
-      "hPa"
-    );
-
-    const fc =
-      this._mode === "hourly" ? this._forecastHourly : this._forecastDaily;
+    const tempUnit =
+      tempData?.unit ||
+      (this._config.entity
+        ? this._hass.states[this._config.entity]?.attributes.temperature_unit
+        : null) ||
+      "°C";
+    const fc = this._mode === "hourly" ? fcHourly : fcDaily;
     const fcItems = (fc || []).slice(0, this._config.forecast_items);
-    const hasHourly = this._forecastHourly && this._forecastHourly.length > 0;
-    const hasDaily = this._forecastDaily && this._forecastDaily.length > 0;
+    const hasHourly = fcHourly && fcHourly.length > 0;
+    const hasDaily = fcDaily && fcDaily.length > 0;
 
     return html`
       <ha-card>
@@ -688,7 +868,7 @@ class YetAnotherWeatherCard extends LitElement {
                 </div>`
             : ""}
 
-          ${this._config.show_stats && (humidityData || pressureData || w.attributes.wind_speed != null)
+          ${this._config.show_stats && (humidityData || pressureData || windSpeed != null)
             ? html`
                 <div class="stats">
                   ${humidityData
@@ -703,10 +883,10 @@ class YetAnotherWeatherCard extends LitElement {
                         <div class="stat-val">${this._fmt(pressureData.value, 0)} ${pressureData.unit || "hPa"}</div>
                       </div>`
                     : ""}
-                  ${w.attributes.wind_speed != null
+                  ${windSpeed != null
                     ? html`<div class="stat">
                         <div class="stat-label">${this._t("wind")}</div>
-                        <div class="stat-val">${this._fmt(w.attributes.wind_speed, 0)} ${w.attributes.wind_speed_unit || "km/h"}</div>
+                        <div class="stat-val">${this._fmt(windSpeed, 0)} ${windUnit}</div>
                       </div>`
                     : ""}
                 </div>`
@@ -765,6 +945,7 @@ class YetAnotherWeatherCard extends LitElement {
       ha-card { overflow: hidden; }
       .card { padding: 20px 22px; }
       .error { padding: 20px; color: var(--error-color, #db4437); }
+      .loading { padding: 20px; color: var(--secondary-text-color); }
 
       .top {
         display: flex;
@@ -946,8 +1127,31 @@ class YetAnotherWeatherCardEditor extends LitElement {
     return [
       {
         name: "entity",
-        required: true,
         selector: { entity: { domain: "weather" } },
+      },
+      {
+        name: "location_entity",
+        selector: {
+          entity: { domain: ["device_tracker", "person"] },
+        },
+      },
+      {
+        type: "grid",
+        name: "",
+        schema: [
+          {
+            name: "latitude_entity",
+            selector: {
+              entity: { domain: ["input_number", "number", "sensor"] },
+            },
+          },
+          {
+            name: "longitude_entity",
+            selector: {
+              entity: { domain: ["input_number", "number", "sensor"] },
+            },
+          },
+        ],
       },
       {
         name: "name",
@@ -1037,7 +1241,10 @@ class YetAnotherWeatherCardEditor extends LitElement {
   // Pretty labels & helper text for ha-form. Falls back to the field name if omitted.
   _computeLabel = (schema) => {
     const labels = {
-      entity: "Weather entity (required)",
+      entity: "Weather entity",
+      location_entity: "Location entity (device tracker / person)",
+      latitude_entity: "Latitude entity",
+      longitude_entity: "Longitude entity",
       name: "Display name",
       default_mode: "Default forecast view",
       forecast_items: "Forecast items",
@@ -1055,6 +1262,10 @@ class YetAnotherWeatherCardEditor extends LitElement {
 
   _computeHelper = (schema) => {
     const helpers = {
+      entity: "Required unless location entities are configured. Weather data source for entity mode.",
+      location_entity: "Uses this entity's latitude/longitude to fetch weather from Open-Meteo. Replaces the weather entity as data source.",
+      latitude_entity: "Entity whose state is a latitude value (used together with longitude_entity)",
+      longitude_entity: "Entity whose state is a longitude value (used together with latitude_entity)",
       temperature_entity: "Overrides the weather entity's temperature",
       humidity_entity: "Overrides the weather entity's humidity",
       pressure_entity: "Overrides the weather entity's pressure",
@@ -1076,6 +1287,9 @@ class YetAnotherWeatherCardEditor extends LitElement {
       "humidity_entity",
       "pressure_entity",
       "language",
+      "location_entity",
+      "latitude_entity",
+      "longitude_entity",
     ]) {
       if (newConfig[key] === "" || newConfig[key] == null) {
         delete newConfig[key];
@@ -1145,7 +1359,7 @@ window.customCards.push({
 });
 
 console.info(
-  "%c YET-ANOTHER-WEATHER-CARD %c v1.5.0 ",
+  "%c YET-ANOTHER-WEATHER-CARD %c v1.6.0 ",
   "color: white; background: #185FA5; font-weight: 700; padding: 2px 6px; border-radius: 3px 0 0 3px;",
   "color: #185FA5; background: white; font-weight: 700; padding: 2px 6px; border: 1px solid #185FA5; border-radius: 0 3px 3px 0;"
 );
