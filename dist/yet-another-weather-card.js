@@ -302,14 +302,25 @@ class YetAnotherWeatherCard extends LitElement {
         wind_speed_unit: "km/h",
         pressure_unit: "hPa",
       };
-      const h = data.hourly;
-      const newHourly = h.time.map((dt, i) => ({
-        datetime: dt,
-        condition: this._wmoToCondition(h.weather_code[i]),
-        temperature: h.temperature_2m[i],
-        precipitation_probability: h.precipitation_probability[i],
-      }));
+      // Build a date→min map from the daily data so hourly items can be
+      // annotated with the day's forecasted low.  This restores the filled
+      // temperature band on the graph for hourly mode (the strip is
+      // unaffected — it only shows fc-lo when _mode === "daily").
       const d = data.daily;
+      const dailyMinByDate = {};
+      d.time.forEach((dt, i) => { dailyMinByDate[dt] = d.temperature_2m_min[i]; });
+
+      const h = data.hourly;
+      const newHourly = h.time.map((dt, i) => {
+        const day = dt.split("T")[0]; // "2024-01-15T14:00" → "2024-01-15"
+        return {
+          datetime: dt,
+          condition: this._wmoToCondition(h.weather_code[i]),
+          temperature: h.temperature_2m[i],
+          templow: dailyMinByDate[day] ?? null,
+          precipitation_probability: h.precipitation_probability[i],
+        };
+      });
       const newDaily = d.time.map((dt, i) => ({
         datetime: dt,
         condition: this._wmoToCondition(d.weather_code[i]),
