@@ -93,6 +93,7 @@ class YetAnotherWeatherCard extends LitElement {
     this._omLastLat = null;
     this._omLastLon = null;
     this._omLastFetch = 0;
+    this._omFetching = false;
   }
 
   setConfig(config) {
@@ -120,11 +121,15 @@ class YetAnotherWeatherCard extends LitElement {
     };
     this._mode = this._config.default_mode;
 
-    // Reset cached location so the next hass update (or immediate fetch
-    // below) always fires a fresh Open-Meteo request with the new config.
+    // Full reset so saving new coordinates always produces a visible
+    // reload of both the current conditions AND the forecast.
+    this._omCurrent = null;
+    this._omHourly = [];
+    this._omDaily = [];
     this._omLastLat = null;
     this._omLastLon = null;
     this._omLastFetch = 0;
+    this._omFetching = false;
 
     // If hass is already available (e.g. config edited on an existing card),
     // kick off a fetch immediately instead of waiting for the next hass tick.
@@ -268,6 +273,8 @@ class YetAnotherWeatherCard extends LitElement {
   }
 
   async _fetchOpenMeteoWeather(lat, lon) {
+    if (this._omFetching) return;
+    this._omFetching = true;
     const useFahrenheit =
       this._hass?.config?.unit_system?.temperature === "°F";
     const tempUnit = useFahrenheit ? "fahrenheit" : "celsius";
@@ -282,8 +289,10 @@ class YetAnotherWeatherCard extends LitElement {
       const resp = await fetch(url);
       if (!resp.ok) return;
       const data = await resp.json();
+      // Build all three payloads before touching any reactive property so
+      // they all land in the same Lit render cycle (no partial-update races).
       const c = data.current;
-      this._omCurrent = {
+      const newCurrent = {
         condition: this._wmoToCondition(c.weather_code),
         temperature: c.temperature_2m,
         humidity: c.relative_humidity_2m,
@@ -294,26 +303,31 @@ class YetAnotherWeatherCard extends LitElement {
         pressure_unit: "hPa",
       };
       const h = data.hourly;
-      this._omHourly = h.time.map((dt, i) => ({
+      const newHourly = h.time.map((dt, i) => ({
         datetime: dt,
         condition: this._wmoToCondition(h.weather_code[i]),
         temperature: h.temperature_2m[i],
         precipitation_probability: h.precipitation_probability[i],
       }));
       const d = data.daily;
-      this._omDaily = d.time.map((dt, i) => ({
+      const newDaily = d.time.map((dt, i) => ({
         datetime: dt,
         condition: this._wmoToCondition(d.weather_code[i]),
         temperature: d.temperature_2m_max[i],
         templow: d.temperature_2m_min[i],
         precipitation_probability: d.precipitation_probability_max[i],
       }));
+      // Assign all at once — Lit batches these into a single render
+      this._omCurrent = newCurrent;
+      this._omHourly = newHourly;
+      this._omDaily = newDaily;
       this._omLastLat = lat;
       this._omLastLon = lon;
       this._omLastFetch = Date.now();
-      this.requestUpdate();
     } catch (e) {
       // Network error — keep displaying previous data
+    } finally {
+      this._omFetching = false;
     }
   }
 
