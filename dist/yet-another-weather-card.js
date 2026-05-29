@@ -232,7 +232,7 @@ class YetAnotherWeatherCard extends LitElement {
   // ── Location-based mode helpers ──────────────────────────
 
   _locationMode() {
-    return !!(
+    return !this._config?.entity && !!(
       this._config?.location_entity ||
       (this._config?.latitude != null && this._config?.longitude != null)
     );
