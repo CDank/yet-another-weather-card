@@ -6,7 +6,7 @@
 
 Yes, the world needed another one. A custom weather card for Home Assistant with animated SVG icons, toggleable hourly/daily forecast, support for custom sensor entities, and location-based weather via GPS coordinates or a device tracker.
 
-<img width="521" height="528" alt="chrome_Bbgutx0MyQ" src="https://github.com/user-attachments/assets/45689732-3bb1-45f2-b567-8542cbb633fe" />
+<img width="624" height="810" alt="Image" src="https://github.com/user-attachments/assets/b4d82580-3028-45e3-aadc-87abf6af6549" />
 
  
 
