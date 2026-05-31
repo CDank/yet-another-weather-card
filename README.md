@@ -1,8 +1,8 @@
 # Yet Another Weather Card
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
-[![GitHub Release](https://img.shields.io/github/release/YOUR_GITHUB_USERNAME/yet-another-weather-card.svg)](https://github.com/YOUR_GITHUB_USERNAME/yet-another-weather-card/releases)
-[![License](https://img.shields.io/github/license/YOUR_GITHUB_USERNAME/yet-another-weather-card.svg)](LICENSE)
+[![GitHub Release](https://img.shields.io/github/release/CDank/yet-another-weather-card.svg)](https://github.com/CDank/yet-another-weather-card/releases)
+[![License](https://img.shields.io/github/license/CDank/yet-another-weather-card.svg)](LICENSE)
 
 Yes, the world needed another one. A custom weather card for Home Assistant with animated SVG icons, toggleable hourly/daily forecast, support for custom sensor entities, and location-based weather via GPS coordinates or a device tracker.
 
@@ -16,7 +16,11 @@ Yes, the world needed another one. A custom weather card for Home Assistant with
 - **Animated SVG icons** — rotating sun, drifting clouds, falling rain, tumbling snow, flickering lightning, shifting fog; optionally disabled
 - **Live forecast** — uses the modern `weather/subscribe_forecast` WebSocket API (HA 2024+), no polling
 - **Hourly ⇄ Daily toggle** — automatically appears when both forecast types are available
-- **Custom sensor entities** — override temperature, humidity, and pressure readings with your own sensors (e.g. an Ecowitt GW3000)
+- **Expandable daily view** — tap a day in the daily strip to open its hourly (or day/night) detail, when the integration provides it
+- **Custom sensor entities** — override temperature, humidity, pressure, **and wind speed / direction** readings with your own sensors (e.g. an Ecowitt GW3000); wind direction is shown as a compass label (e.g. `W 12 km/h`)
+- **Per-mode forecast sizing & layout** — separate item counts for the hourly and daily views, each laid out as a horizontal scroll strip or a wrapping grid
+- **Temperature graph** — optional filled-area chart (`graph` / `both`) with adaptive label thinning so dense hourly forecasts stay readable
+- **Optional fixed height** — keep the card at its tallest rendered height so switching views or opening a day doesn't shift the dashboard
 - **Location-based weather** — fetch current conditions and forecast from [Open-Meteo](https://open-meteo.com/) (free, no API key) for any GPS coordinate; location can be a fixed lat/lon or tracked via a `device_tracker` / `person` entity
 - **Multi-language** — `en`, `de`, `fr`, `hu`; auto-detects your Home Assistant UI language
 - **Theme-aware** — uses Home Assistant CSS variables, looks correct in both light and dark mode
@@ -29,7 +33,7 @@ Yes, the world needed another one. A custom weather card for Home Assistant with
 1. In Home Assistant, open **HACS**
 2. Click the three-dots menu in the top right → **Custom repositories**
 3. Add:
-   - **Repository**: `https://github.com/balazsskorka/yet-another-weather-card`
+   - **Repository**: `https://github.com/CDank/yet-another-weather-card`
    - **Type**: `Dashboard`
 4. Click **Add**
 
@@ -74,9 +78,17 @@ The card operates in one of two modes depending on what you configure:
 | `temperature_entity` | string | — | Custom sensor for current temperature (falls back to weather/Open-Meteo attribute). |
 | `humidity_entity` | string | — | Custom sensor for humidity. |
 | `pressure_entity` | string | — | Custom sensor for pressure. |
+| `wind_speed_entity` | string | — | Custom sensor for wind speed (overrides the weather/Open-Meteo value). |
+| `wind_bearing_entity` | string | — | Custom sensor for wind direction, value in degrees (0–360); rendered as a compass label. |
 | `default_mode` | `hourly` \| `daily` | `hourly` | Which forecast tab is active initially. |
-| `forecast_items` | number | `7` | Number of forecast cells to show (1–24). |
+| `forecast_items` | number | `7` | Legacy fallback item count, used only when the per-mode options below are unset. |
+| `forecast_items_hourly` | number | `7` | Number of hours shown in the hourly view (1–48). |
+| `forecast_items_daily` | number | `7` | Number of days shown in the daily view (1–14). |
+| `hourly_layout` | `scroll` \| `wrap` | `scroll` | Hourly strip layout — one horizontal scroll row, or a wrapping grid. |
+| `daily_layout` | `scroll` \| `wrap` | `wrap` | Daily strip layout — one horizontal scroll row, or a wrapping grid. |
 | `forecast_style` | `strip` \| `graph` \| `both` | `strip` | Forecast display — icon cells, temperature graph, or both. |
+| `expandable_days` | boolean | `true` | In the daily view, tap a day to open its hourly (or day/night) detail. |
+| `lock_height` | boolean | `false` | Keep the card at its tallest rendered height so switching views or opening a day doesn't shift the dashboard. |
 | `language` | `en` \| `de` \| `fr` \| `hu` | HA locale | UI language for condition names and labels. |
 | `show_current` | boolean | `true` | Show top block (temperature + icon + condition name). |
 | `show_stats` | boolean | `true` | Show humidity / pressure / wind row. |
@@ -92,6 +104,13 @@ The card operates in one of two modes depending on what you configure:
 - Coordinates are re-checked on every HA state update. If they change (e.g. a moving device tracker), a new fetch fires immediately.
 - Data is refreshed at most once every 10 minutes when coordinates are unchanged.
 
+### Forecast sizing, layout & detail notes
+
+- `forecast_items_hourly` / `forecast_items_daily` take precedence over the legacy `forecast_items`. If only `forecast_items` is set, it applies to both views.
+- `hourly_layout` / `daily_layout` control whether each strip is a single horizontal **scroll** row or a **wrap**ping grid.
+- With `expandable_days: true`, days that have a more detailed forecast become tappable in the daily view. The detail view prefers the hourly forecast for that day and falls back to twice-daily (day/night) segments; it honours `forecast_style`, so `graph` / `both` draws an hourly graph for the selected day.
+- In location mode the hourly forecast covers the next 48 hours, so `forecast_items_hourly` can go up to 48.
+
 ## Example configurations
 
 **Minimal — entity mode**
@@ -101,7 +120,7 @@ type: custom:yet-another-weather-card
 entity: weather.home
 ```
 
-**With custom sensors**
+**With custom sensors (incl. wind)**
 
 ```yaml
 type: custom:yet-another-weather-card
@@ -110,8 +129,25 @@ name: Home
 temperature_entity: sensor.outdoor_temperature
 humidity_entity: sensor.outdoor_humidity
 pressure_entity: sensor.outdoor_pressure
+wind_speed_entity: sensor.outdoor_wind_speed
+wind_bearing_entity: sensor.outdoor_wind_direction
 default_mode: hourly
-forecast_items: 7
+forecast_items_hourly: 12
+forecast_items_daily: 7
+```
+
+**Per-mode layout, graph & expandable days**
+
+```yaml
+type: custom:yet-another-weather-card
+entity: weather.home
+forecast_style: both
+hourly_layout: scroll
+daily_layout: wrap
+forecast_items_hourly: 24
+forecast_items_daily: 7
+expandable_days: true
+lock_height: true
 ```
 
 **Location mode — fixed coordinates**

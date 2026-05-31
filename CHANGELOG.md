@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.6.0-patched.3.2 — 2026-05-31
+
+Customized fork of upstream v1.6.0 ([CDank/yet-another-weather-card](https://github.com/CDank/yet-another-weather-card)).
+
+### Added
+- **Wind sensor overrides** — `wind_speed_entity` and `wind_bearing_entity` let custom sensors override the weather/Open-Meteo wind values (in both entity and location mode). Wind direction is rendered as a compass label (e.g. `W 12 km/h`).
+- **Per-mode forecast item counts** — `forecast_items_hourly` (1–48) and `forecast_items_daily` (1–14) replace the single `forecast_items`, which is kept as a legacy fallback.
+- **Per-mode layout** — `hourly_layout` and `daily_layout` (`scroll` / `wrap`) control whether each strip is a horizontal scroll row or a wrapping grid (defaults: hourly scrolls, daily wraps).
+- **Expandable daily view** — `expandable_days` (default on); tap a day in the daily strip to open its hourly (or twice-daily day/night) detail. The detail view honours `forecast_style`, so `graph` / `both` draws an hourly graph for the selected day.
+- **Optional fixed card height** — `lock_height` keeps the card at its tallest rendered height so switching views or opening a day doesn't shift the dashboard.
+
+### Changed
+- Open-Meteo hourly forecast extended from 24 h to 48 h, so `forecast_items_hourly` can use the full range.
+- Graph labels are now adaptively thinned (max ~7) so times and temperatures don't squish on dense hourly forecasts.
+- Restored the upstream explanatory code comments and the bundled-Lit license notice that had been stripped from the working copy; added inline rationale comments for the fork's changes.
+
+### Fixed
+- **Strip icons** — fixed clipping, jitter, and vertical/horizontal centering. Icon size is pinned in CSS so Home Assistant's global styles can't collapse the SVG, and each strip icon is re-centred once per motif by reframing its viewBox.
+- **Icon animation positioning** — animations now use `transform-box: fill-box` with an own-box `transform-origin`, so rotating/drifting elements spin in place instead of orbiting the icon centre (root cause of clouds and other motifs being mispositioned).
+- Guarded `_resolveValue` against `null` weather-attribute lookups in location mode.
+
+---
+
 ## 1.6.0 — 2026-05-29
 
 ### Added
