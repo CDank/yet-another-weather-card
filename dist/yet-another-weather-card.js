@@ -404,6 +404,21 @@ class YetAnotherWeatherCard extends LitElement {
     }
   }
 
+  // ── More-info dialog trigger ─────────────────────────────
+  // Fires the standard HA event that opens the entity detail popup.
+  // Only called when a custom override entity is configured —
+  // we never open more-info for weather/Open-Meteo-derived values.
+  _fireMoreInfo(entityId) {
+    if (!entityId) return;
+    this.dispatchEvent(
+      new CustomEvent("hass-more-info", {
+        detail: { entityId },
+        bubbles: true,
+        composed: true,
+      })
+    );
+  }
+
   // ── Value resolver: custom sensor wins, weather attr is fallback
   _resolveValue(customEntity, weatherAttr, defaultUnit) {
     const weather = this._hass.states[this._config.entity];
@@ -1096,7 +1111,10 @@ class YetAnotherWeatherCard extends LitElement {
                 <div class="top">
                   <div class="left">
                     <div class="loc">${friendly}</div>
-                    <div class="temp">
+                    <div class="temp ${this._config.temperature_entity ? "entity-link" : ""}"
+                         @click=${this._config.temperature_entity
+                           ? () => this._fireMoreInfo(this._config.temperature_entity)
+                           : null}>
                       ${this._fmt(tempData?.value, 1)}<span class="unit">${tempUnit}</span>
                     </div>
                     ${this._config.show_today_minmax && (todayHigh != null || todayLow != null)
@@ -1119,19 +1137,28 @@ class YetAnotherWeatherCard extends LitElement {
             ? html`
                 <div class="stats">
                   ${humidityData
-                    ? html`<div class="stat">
+                    ? html`<div class="stat ${this._config.humidity_entity ? "entity-link" : ""}"
+                               @click=${this._config.humidity_entity
+                                 ? () => this._fireMoreInfo(this._config.humidity_entity)
+                                 : null}>
                         <div class="stat-label">${this._t("humidity")}</div>
                         <div class="stat-val">${this._fmt(humidityData.value, 0)}${humidityData.unit || "%"}</div>
                       </div>`
                     : ""}
                   ${pressureData
-                    ? html`<div class="stat">
+                    ? html`<div class="stat ${this._config.pressure_entity ? "entity-link" : ""}"
+                               @click=${this._config.pressure_entity
+                                 ? () => this._fireMoreInfo(this._config.pressure_entity)
+                                 : null}>
                         <div class="stat-label">${this._t("pressure")}</div>
                         <div class="stat-val">${this._fmt(pressureData.value, 0)} ${pressureData.unit || "hPa"}</div>
                       </div>`
                     : ""}
                   ${windDisplay
-                    ? html`<div class="stat">
+                    ? html`<div class="stat ${this._config.wind_speed_entity ? "entity-link" : ""}"
+                               @click=${this._config.wind_speed_entity
+                                 ? () => this._fireMoreInfo(this._config.wind_speed_entity)
+                                 : null}>
                         <div class="stat-label">${this._t("wind")}</div>
                         <div class="stat-val">${windDisplay}</div>
                       </div>`
@@ -1319,6 +1346,16 @@ class YetAnotherWeatherCard extends LitElement {
       }
       .today-hi { color: var(--primary-text-color); font-weight: 500; }
       .today-lo { color: var(--secondary-text-color); }
+
+      /* Clickable entity elements — only rendered when an override entity
+         is configured; cursor + subtle ripple on hover/active */
+      .entity-link {
+        cursor: pointer;
+        border-radius: 6px;
+        transition: background 0.15s;
+      }
+      .entity-link:hover { background: var(--secondary-background-color); }
+      .entity-link:active { background: var(--divider-color); }
 
       .stats {
         display: grid;
