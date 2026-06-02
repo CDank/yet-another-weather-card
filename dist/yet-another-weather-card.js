@@ -140,6 +140,7 @@ class YetAnotherWeatherCard extends LitElement {
       daily_layout: "wrap",
       lock_height: false,
       show_today_minmax: true,
+      entity_links: true,
       ...config,
     };
     this._mode = this._config.default_mode;
@@ -1111,8 +1112,8 @@ class YetAnotherWeatherCard extends LitElement {
                 <div class="top">
                   <div class="left">
                     <div class="loc">${friendly}</div>
-                    <div class="temp ${this._config.temperature_entity ? "entity-link" : ""}"
-                         @click=${this._config.temperature_entity
+                    <div class="temp ${this._config.temperature_entity && this._config.entity_links !== false ? "entity-link" : ""}"
+                         @click=${this._config.temperature_entity && this._config.entity_links !== false
                            ? () => this._fireMoreInfo(this._config.temperature_entity)
                            : null}>
                       ${this._fmt(tempData?.value, 1)}<span class="unit">${tempUnit}</span>
@@ -1137,8 +1138,8 @@ class YetAnotherWeatherCard extends LitElement {
             ? html`
                 <div class="stats">
                   ${humidityData
-                    ? html`<div class="stat ${this._config.humidity_entity ? "entity-link" : ""}"
-                               @click=${this._config.humidity_entity
+                    ? html`<div class="stat ${this._config.humidity_entity && this._config.entity_links !== false ? "entity-link" : ""}"
+                               @click=${this._config.humidity_entity && this._config.entity_links !== false
                                  ? () => this._fireMoreInfo(this._config.humidity_entity)
                                  : null}>
                         <div class="stat-label">${this._t("humidity")}</div>
@@ -1146,8 +1147,8 @@ class YetAnotherWeatherCard extends LitElement {
                       </div>`
                     : ""}
                   ${pressureData
-                    ? html`<div class="stat ${this._config.pressure_entity ? "entity-link" : ""}"
-                               @click=${this._config.pressure_entity
+                    ? html`<div class="stat ${this._config.pressure_entity && this._config.entity_links !== false ? "entity-link" : ""}"
+                               @click=${this._config.pressure_entity && this._config.entity_links !== false
                                  ? () => this._fireMoreInfo(this._config.pressure_entity)
                                  : null}>
                         <div class="stat-label">${this._t("pressure")}</div>
@@ -1155,8 +1156,8 @@ class YetAnotherWeatherCard extends LitElement {
                       </div>`
                     : ""}
                   ${windDisplay
-                    ? html`<div class="stat ${this._config.wind_speed_entity ? "entity-link" : ""}"
-                               @click=${this._config.wind_speed_entity
+                    ? html`<div class="stat ${this._config.wind_speed_entity && this._config.entity_links !== false ? "entity-link" : ""}"
+                               @click=${this._config.wind_speed_entity && this._config.entity_links !== false
                                  ? () => this._fireMoreInfo(this._config.wind_speed_entity)
                                  : null}>
                         <div class="stat-label">${this._t("wind")}</div>
@@ -1730,6 +1731,7 @@ class YetAnotherWeatherCardEditor extends LitElement {
           { name: "show_stats", selector: { boolean: {} } },
           { name: "show_forecast", selector: { boolean: {} } },
           { name: "show_today_minmax", selector: { boolean: {} } },
+          { name: "entity_links", selector: { boolean: {} } },
           { name: "disable_animations", selector: { boolean: {} } },
           { name: "expandable_days", selector: { boolean: {} } },
           { name: "lock_height", selector: { boolean: {} } },
@@ -1763,6 +1765,7 @@ class YetAnotherWeatherCardEditor extends LitElement {
       show_stats: "Show stats",
       show_forecast: "Show forecast",
       show_today_minmax: "Show today's high / low",
+      entity_links: "Tap sensors to open detail",
       disable_animations: "Disable animations",
       expandable_days: "Tap day for detail",
       lock_height: "Fixed height",
@@ -1777,6 +1780,7 @@ class YetAnotherWeatherCardEditor extends LitElement {
       latitude: "Fixed latitude coordinate (used together with longitude)",
       longitude: "Fixed longitude coordinate (used together with latitude)",
       show_today_minmax: "Show today's forecasted high (↑) and low (↓) below the current temperature",
+      entity_links: "Tap temperature, humidity, pressure or wind to open the more-info dialog (only applies to configured override sensors)",
       disable_animations: "Show icons without motion (respects prefers-reduced-motion too)",
       expandable_days: "In the daily view, tap a day to open its hourly (or day/night) forecast, when the integration provides it",
       lock_height: "Keep the card at its tallest height so switching views or opening a day doesn't shift the dashboard",
@@ -1847,6 +1851,7 @@ class YetAnotherWeatherCardEditor extends LitElement {
       daily_layout: "wrap",
       lock_height: false,
       show_today_minmax: true,
+      entity_links: true,
       ...cfg,
       // Show resolved per-mode counts in the form even when only the legacy
       // forecast_items was set previously.
