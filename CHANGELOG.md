@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.6.0-patched.3.2 — 2026-05-31
+## 1.7.0 — 2026-06-02
 
 Customized fork of upstream v1.6.0 ([CDank/yet-another-weather-card](https://github.com/CDank/yet-another-weather-card)).
 
@@ -10,6 +10,7 @@ Customized fork of upstream v1.6.0 ([CDank/yet-another-weather-card](https://git
 - **Per-mode layout** — `hourly_layout` and `daily_layout` (`scroll` / `wrap`) control whether each strip is a horizontal scroll row or a wrapping grid (defaults: hourly scrolls, daily wraps).
 - **Expandable daily view** — `expandable_days` (default on); tap a day in the daily strip to open its hourly (or twice-daily day/night) detail. The detail view honours `forecast_style`, so `graph` / `both` draws an hourly graph for the selected day.
 - **Optional fixed card height** — `lock_height` keeps the card at its tallest rendered height so switching views or opening a day doesn't shift the dashboard.
+- **Today's high / low in the header** — `show_today_minmax` (default `true`) displays the forecasted daily high (↑) and low (↓) below the current temperature. Hidden automatically if the integration doesn't include today in its daily data.
 
 ### Changed
 - Open-Meteo hourly forecast extended from 24 h to 48 h, so `forecast_items_hourly` can use the full range.

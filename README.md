@@ -16,6 +16,7 @@ Yes, the world needed another one. A custom weather card for Home Assistant with
 - **Animated SVG icons** — rotating sun, drifting clouds, falling rain, tumbling snow, flickering lightning, shifting fog; optionally disabled
 - **Live forecast** — uses the modern `weather/subscribe_forecast` WebSocket API (HA 2024+), no polling
 - **Hourly ⇄ Daily toggle** — automatically appears when both forecast types are available
+- **Today's high / low** — forecasted daily high (↑) and low (↓) shown below the current temperature in the header
 - **Expandable daily view** — tap a day in the daily strip to open its hourly (or day/night) detail, when the integration provides it
 - **Custom sensor entities** — override temperature, humidity, pressure, **and wind speed / direction** readings with your own sensors (e.g. an Ecowitt GW3000); wind direction is shown as a compass label (e.g. `W 12 km/h`)
 - **Per-mode forecast sizing & layout** — separate item counts for the hourly and daily views, each laid out as a horizontal scroll strip or a wrapping grid
@@ -91,6 +92,7 @@ The card operates in one of two modes depending on what you configure:
 | `lock_height` | boolean | `false` | Keep the card at its tallest rendered height so switching views or opening a day doesn't shift the dashboard. |
 | `language` | `en` \| `de` \| `fr` \| `hu` | HA locale | UI language for condition names and labels. |
 | `show_current` | boolean | `true` | Show top block (temperature + icon + condition name). |
+| `show_today_minmax` | boolean | `true` | Show today's forecasted high (↑) and low (↓) below the current temperature. Hidden automatically if the integration doesn't include today in the daily forecast. |
 | `show_stats` | boolean | `true` | Show humidity / pressure / wind row. |
 | `show_forecast` | boolean | `true` | Show forecast section. |
 | `disable_animations` | boolean | `false` | Freeze all icon animations (icons still display, just static). |

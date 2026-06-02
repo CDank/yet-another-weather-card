@@ -6,6 +6,7 @@ Yes, the world needed another one. A custom weather card with animated SVG icons
 - Full visual editor — no YAML required
 - Animated SVG icons (sun, clouds, rain, snow, lightning, fog, wind, hail) — optionally disabled
 - Hourly ⇄ Daily forecast toggle (live via WebSocket)
+- **Today's high / low** — forecasted ↑ high and ↓ low shown in the header below the current temperature
 - **Expandable daily view** — tap a day for its hourly (or day/night) detail
 - **Location-based weather** — fetch weather for any GPS coordinate or track a `device_tracker` / `person` entity (powered by [Open-Meteo](https://open-meteo.com/), free, no API key)
 - Custom sensor entities override weather attributes — temperature, humidity, pressure, and wind speed/direction (shown as a compass label)

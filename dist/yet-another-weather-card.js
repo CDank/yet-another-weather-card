@@ -5,7 +5,7 @@
  * a toggleable hourly/daily forecast, an optional temperature graph, and
  * support for custom temperature, humidity, pressure and wind sensor entities.
  *
- * Version: 1.6.0-patched.3.2
+ * Version: 1.7.0
  * Author:  Balazs Skorka (upstream)
  * Customized fork — see the commit history for the full list of changes.
  *
@@ -139,6 +139,7 @@ class YetAnotherWeatherCard extends LitElement {
       hourly_layout: "scroll",
       daily_layout: "wrap",
       lock_height: false,
+      show_today_minmax: true,
       ...config,
     };
     this._mode = this._config.default_mode;
@@ -1064,6 +1065,17 @@ class YetAnotherWeatherCard extends LitElement {
     const hasHourly = fcHourly && fcHourly.length > 0;
     const hasDaily = fcDaily && fcDaily.length > 0;
 
+    // ── Today's forecasted high/low for the header ──
+    // Prefer the first daily entry whose date matches today; if the daily
+    // forecast starts tomorrow (some integrations skip the current day),
+    // fall back gracefully to nothing.
+    const todayStr = new Date().toDateString();
+    const todayFc = (fcDaily || []).find(
+      (f) => new Date(f.datetime).toDateString() === todayStr
+    );
+    const todayHigh = todayFc?.temperature ?? null;
+    const todayLow  = todayFc?.templow  ?? null;
+
     // ── Day-detail (expandable daily view) ──
     const expandable = this._config.expandable_days !== false;
     const fcTwiceDaily = this._locationMode() ? [] : (this._forecastTwiceDaily || []);
@@ -1087,6 +1099,16 @@ class YetAnotherWeatherCard extends LitElement {
                     <div class="temp">
                       ${this._fmt(tempData?.value, 1)}<span class="unit">${tempUnit}</span>
                     </div>
+                    ${this._config.show_today_minmax && (todayHigh != null || todayLow != null)
+                      ? html`<div class="today-range">
+                          ${todayHigh != null
+                            ? html`<span class="today-hi">↑ ${this._fmt(todayHigh, 0)}°</span>`
+                            : ""}
+                          ${todayLow != null
+                            ? html`<span class="today-lo">↓ ${this._fmt(todayLow, 0)}°</span>`
+                            : ""}
+                        </div>`
+                      : ""}
                     <div class="cond">${this._prettyCondition(condition)}</div>
                   </div>
                   <div class="icon-wrap">${this._icon(condition, 132, this._isDay())}</div>
@@ -1288,6 +1310,15 @@ class YetAnotherWeatherCard extends LitElement {
         margin-top: 8px;
       }
       .icon-wrap { flex-shrink: 0; }
+
+      .today-range {
+        display: flex;
+        gap: 8px;
+        font-size: 14px;
+        margin: 2px 0 6px;
+      }
+      .today-hi { color: var(--primary-text-color); font-weight: 500; }
+      .today-lo { color: var(--secondary-text-color); }
 
       .stats {
         display: grid;
@@ -1661,6 +1692,7 @@ class YetAnotherWeatherCardEditor extends LitElement {
           { name: "show_current", selector: { boolean: {} } },
           { name: "show_stats", selector: { boolean: {} } },
           { name: "show_forecast", selector: { boolean: {} } },
+          { name: "show_today_minmax", selector: { boolean: {} } },
           { name: "disable_animations", selector: { boolean: {} } },
           { name: "expandable_days", selector: { boolean: {} } },
           { name: "lock_height", selector: { boolean: {} } },
@@ -1693,6 +1725,7 @@ class YetAnotherWeatherCardEditor extends LitElement {
       show_current: "Show current",
       show_stats: "Show stats",
       show_forecast: "Show forecast",
+      show_today_minmax: "Show today's high / low",
       disable_animations: "Disable animations",
       expandable_days: "Tap day for detail",
       lock_height: "Fixed height",
@@ -1706,6 +1739,7 @@ class YetAnotherWeatherCardEditor extends LitElement {
       location_entity: "Uses this entity's latitude/longitude to fetch weather from Open-Meteo. Replaces the weather entity as data source.",
       latitude: "Fixed latitude coordinate (used together with longitude)",
       longitude: "Fixed longitude coordinate (used together with latitude)",
+      show_today_minmax: "Show today's forecasted high (↑) and low (↓) below the current temperature",
       disable_animations: "Show icons without motion (respects prefers-reduced-motion too)",
       expandable_days: "In the daily view, tap a day to open its hourly (or day/night) forecast, when the integration provides it",
       lock_height: "Keep the card at its tallest height so switching views or opening a day doesn't shift the dashboard",
@@ -1775,6 +1809,7 @@ class YetAnotherWeatherCardEditor extends LitElement {
       hourly_layout: "scroll",
       daily_layout: "wrap",
       lock_height: false,
+      show_today_minmax: true,
       ...cfg,
       // Show resolved per-mode counts in the form even when only the legacy
       // forecast_items was set previously.
@@ -1818,7 +1853,7 @@ window.customCards.push({
 });
 
 console.info(
-  "%c YET-ANOTHER-WEATHER-CARD %c v1.6.0-patched.3.2 ",
+  "%c YET-ANOTHER-WEATHER-CARD %c v1.7.0 ",
   "color: white; background: #185FA5; font-weight: 700; padding: 2px 6px; border-radius: 3px 0 0 3px;",
   "color: #185FA5; background: white; font-weight: 700; padding: 2px 6px; border: 1px solid #185FA5; border-radius: 0 3px 3px 0;"
 );
